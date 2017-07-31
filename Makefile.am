@@ -19,7 +19,8 @@ EXTRA_DIST = \
 	libfontembed.pc.in \
 	utils/cups-browsed.service \
 	utils/cups-browsed-upstart.conf \
-	filter/braille/drivers/index/ubrlto4dot.c
+	filter/braille/drivers/index/ubrlto4dot.c \
+	filter/braille/filters/TODO.txt
 
 # ========
 # Backends
@@ -64,11 +65,31 @@ test1284_SOURCES = \
 test1284_LDADD = $(CUPS_LIBS)
 test1284_CFLAGS = $(CUPS_CFLAGS)
 
+# ==============
+# PPD Generators
+# ==============
+if ENABLE_DRIVERLESS
+pkgppdgendir = $(CUPS_SERVERBIN)/driver
+pkgppdgen_PROGRAMS = driverless
+
+driverless_SOURCES = \
+	utils/driverless.c
+driverless_CFLAGS = \
+	$(CUPS_CFLAGS) \
+	-I$(srcdir)/cupsfilters/
+driverless_CXXFLAGS = $(driverless_CFLAGS)
+driverless_LDADD = \
+	$(CUPS_LIBS) \
+	libcupsfilters.la
+endif
+
 # =======
 # Banners
 # =======
 pkgbannerdir = $(CUPS_DATADIR)/banners
-pkgbanner_DATA = \
+pkgbanner_DATA =
+if ENABLE_POPPLER
+pkgbanner_DATA += \
 	banners/classified \
 	banners/confidential \
 	banners/secret \
@@ -76,7 +97,7 @@ pkgbanner_DATA = \
 	banners/form \
 	banners/topsecret \
 	banners/unclassified
-
+endif
 EXTRA_DIST += $(pkgbanner_DATA)
 
 # ========
@@ -98,7 +119,8 @@ pkgfiltersinclude_DATA = \
 	cupsfilters/colormanager.h \
 	cupsfilters/driver.h \
 	cupsfilters/image.h \
-	cupsfilters/raster.h
+	cupsfilters/raster.h \
+	cupsfilters/ppdgenerator.h
 
 lib_LTLIBRARIES = libcupsfilters.la
 
@@ -148,6 +170,7 @@ libcupsfilters_la_SOURCES = \
 	cupsfilters/image-zoom.c \
 	cupsfilters/lut.c \
 	cupsfilters/pack.c \
+	cupsfilters/ppdgenerator.c \
 	cupsfilters/raster.c \
 	cupsfilters/rgb.c \
 	cupsfilters/srgb.c \
@@ -292,9 +315,17 @@ pkgmimedir = $(CUPS_DATADIR)/mime
 pkgmime_DATA = \
 	mime/cupsfilters.convs \
 	mime/cupsfilters.types
+if ENABLE_POPPLER
+pkgmime_DATA += \
+	mime/cupsfilters-poppler.convs
+endif
 if ENABLE_GHOSTSCRIPT
 pkgmime_DATA += \
 	mime/cupsfilters-ghostscript.convs
+endif
+if ENABLE_MUTOOL
+pkgmime_DATA += \
+	mime/cupsfilters-mupdf.convs
 endif
 if ENABLE_BRAILLE
 pkgmime_DATA += \
@@ -382,11 +413,16 @@ EXTRA_DIST += \
 	$(pkgfontembedinclude_DATA) \
 	fontembed/README
 
+pkgfilter_PROGRAMS =
+
 # ===========
 # PDF to OPVP
 # ===========
 pkgfilterdir = $(CUPS_SERVERBIN)/filter
-pkgfilter_PROGRAMS = pdftoopvp
+if ENABLE_POPPLER
+pkgfilter_PROGRAMS += \
+	pdftoopvp
+endif
 
 pkgfontconfigdir = $(sysconfdir)/$(FONTDIR)
 pkgfontconfig_DATA = filter/pdftoopvp/99pdftoopvp.conf
@@ -490,26 +526,36 @@ nodist_pkgfilter_SCRIPTS = \
 	filter/braille/filters/texttobrf
 endif
 pkgfilter_PROGRAMS += \
-	bannertopdf \
 	commandtoescpx \
 	commandtopclx \
 	sys5ippprinter \
 	texttotext \
 	pdftops \
-	pdftoraster \
 	rastertoescpx \
 	rastertopclx \
 	texttopdf \
-	urftopdf \
 	rastertopdf \
 	rastertops
+if ENABLE_URFTOPDF
+pkgfilter_PROGRAMS += \
+	urftopdf
+endif
+if ENABLE_POPPLER
+pkgfilter_PROGRAMS += \
+	bannertopdf \
+	pdftoraster
 if ENABLE_IJS
 pkgfilter_PROGRAMS += \
 	pdftoijs
 endif
+endif
 if ENABLE_GHOSTSCRIPT
 pkgfilter_PROGRAMS += \
 	gstoraster
+endif
+if ENABLE_MUTOOL
+pkgfilter_PROGRAMS += \
+	mupdftoraster
 endif
 if ENABLE_FOOMATIC
 pkgfilter_PROGRAMS += \
@@ -602,6 +648,7 @@ foomatic_rip_CFLAGS = \
 	-DCONFIG_PATH='"$(sysconfdir)/foomatic"' \
 	-I$(srcdir)/cupsfilters/
 foomatic_rip_LDADD = \
+	$(CUPS_LIBS) \
 	-lm \
 	libcupsfilters.la
 
@@ -649,6 +696,7 @@ imagetoraster_LDADD = \
 	-lm \
 	libcupsfilters.la
 
+if ENABLE_URFTOPDF
 urftopdf_SOURCES = \
 	filter/urftopdf.cpp \
 	filter/unirast.h
@@ -656,6 +704,7 @@ urftopdf_CXXFLAGS = \
 	$(LIBQPDF_CFLAGS)
 urftopdf_LDADD = \
 	$(LIBQPDF_LIBS)
+endif
 
 rastertopdf_SOURCES = \
 	filter/rastertopdf.cpp
@@ -669,6 +718,15 @@ rastertopdf_LDADD = \
 	$(LCMS_LIBS) \
 	$(LIBQPDF_LIBS) \
 	libcupsfilters.la
+
+mupdftoraster_SOURCES = \
+        filter/mupdftoraster.c
+mupdftoraster_CFLAGS = \
+        $(CUPS_CFLAGS) \
+        -I$(srcdir)/cupsfilters/
+mupdftoraster_LDADD = \
+        $(CUPS_LIBS) \
+        libcupsfilters.la
 
 rastertops_SOURCES = \
 	filter/rastertops.c
@@ -839,7 +897,8 @@ cups_browsed_CFLAGS = \
 	$(AVAHI_GLIB_CFLAGS) \
 	$(GLIB_CFLAGS) \
 	$(GIO_CFLAGS) \
-	$(GIO_UNIX_CFLAGS)
+	$(GIO_UNIX_CFLAGS) \
+	-I$(srcdir)/cupsfilters/
 cups_browsed_CXXFLAGS = $(cups_browsed_CFLAGS)
 cups_browsed_LDADD = \
 	$(CUPS_LIBS) \
@@ -847,12 +906,16 @@ cups_browsed_LDADD = \
 	$(AVAHI_GLIB_LIBS) \
 	$(GLIB_LIBS) \
 	$(GIO_LIBS) \
-	$(GIO_UNIX_LIBS)
+	$(GIO_UNIX_LIBS) \
+	libcupsfilters.la
 initrcdir = $(INITDDIR)
 initrc_SCRIPTS = utils/cups-browsed
 man_MANS = \
 	utils/cups-browsed.8 \
 	utils/cups-browsed.conf.5
+if ENABLE_DRIVERLESS
+man_MANS += utils/driverless.1
+endif
 if ENABLE_FOOMATIC
 man_MANS += \
 	filter/foomatic-rip/foomatic-rip.1
@@ -872,9 +935,11 @@ ppd_DATA = \
 	ppd/Generic-PDF_Printer-PDF.ppd \
 	ppd/HP-Color_LaserJet_CM3530_MFP-PDF.ppd \
 	ppd/Ricoh-PDF_Printer-PDF.ppd
+if ENABLE_POPPLER
 if ENABLE_IJS
 ppd_DATA += \
 	ppd/HP-PhotoSmart_Pro_B8300-hpijs-pdftoijs.ppd
+endif
 endif
 if ENABLE_GHOSTSCRIPT
 ppd_DATA += \
@@ -909,8 +974,13 @@ distclean-local:
 install-exec-hook:
 	$(INSTALL) -d -m 755 $(DESTDIR)$(bindir)
 	$(INSTALL) -d -m 755 $(DESTDIR)$(pkgfilterdir)
+	$(INSTALL) -d -m 755 $(DESTDIR)$(pkgbackenddir)
 if ENABLE_FOOMATIC
 	$(LN_S) -f $(pkgfilterdir)/foomatic-rip $(DESTDIR)$(bindir)
+endif
+if ENABLE_DRIVERLESS
+	$(LN_S) -f $(pkgppdgendir)/driverless $(DESTDIR)$(bindir)
+	$(LN_S) -f $(pkgppdgendir)/driverless $(DESTDIR)$(pkgbackenddir)
 endif
 if ENABLE_BRAILLE
 	$(LN_S) -f imagetobrf $(DESTDIR)$(pkgfilterdir)/imagetoubrl
@@ -941,6 +1011,10 @@ endif
 	$(RM) $(DESTDIR)$(pkgcharsetdir)/pdf.utf-8
 if ENABLE_FOOMATIC
 	$(RM) $(DESTDIR)$(bindir)/foomatic-rip
+endif
+if ENABLE_DRIVERLESS
+	$(RM) $(DESTDIR)$(bindir)/driverless
+	$(RM) $(DESTDIR)$(pkgbackenddir)/driverless
 endif
 if ENABLE_BRAILLE
 	$(RM) $(DESTDIR)$(pkgfilterdir)/imagetoubrl

@@ -12,10 +12,8 @@
 #
 
 #
-# Ghostscript-based filters...
+# MuPDF-based filters...
 #
 
-application/postscript		application/pdf			0	gstopdf
-application/vnd.cups-pdf	application/vnd.cups-raster	99	gstoraster
-application/vnd.cups-pdf	image/pwg-raster		99	gstoraster
-application/vnd.cups-postscript	application/vnd.cups-raster	175	gstoraster
+application/vnd.cups-pdf	application/vnd.cups-raster	101	mupdftoraster
+application/vnd.cups-pdf	image/pwg-raster		101	mupdftoraster

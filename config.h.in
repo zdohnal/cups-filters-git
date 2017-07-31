@@ -21,6 +21,12 @@
 /* gs binary to use */
 #undef CUPS_GHOSTSCRIPT
 
+/* ippfind binary to use. */
+#undef CUPS_IPPFIND
+
+/* mutool binary to use */
+#undef CUPS_MUTOOL
+
 /* max resolution used for pdftops when converting images */
 #undef CUPS_PDFTOPS_MAX_RESOLUTION
 
@@ -41,9 +47,6 @@
 
 /* Transient run-time state dir of CUPS */
 #undef CUPS_STATEDIR
-
-/* Define that we provide acroread. */
-#undef HAVE_ACROREAD
 
 /* Define if you have the avahi library */
 #undef HAVE_AVAHI
@@ -116,9 +119,6 @@
 
 /* Define to 1 if you have the `open_memstream' function. */
 #undef HAVE_OPEN_MEMSTREAM
-
-/* Define that we provide poppler pdftocairo. */
-#undef HAVE_POPPLER_PDFTOCAIRO
 
 /* Define that we provide poppler pdftops. */
 #undef HAVE_POPPLER_PDFTOPS
