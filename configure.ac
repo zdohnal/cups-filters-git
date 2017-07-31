@@ -6,8 +6,8 @@ AC_PREREQ([2.65])
 # Version informations
 # ====================
 m4_define([cups_filters_version_major],[1])
-m4_define([cups_filters_version_minor],[13])
-m4_define([cups_filters_version_micro],[4])
+m4_define([cups_filters_version_minor],[14])
+m4_define([cups_filters_version_micro],[1])
 m4_define([cups_filters_version],[cups_filters_version_major.cups_filters_version_minor.cups_filters_version_micro])
 
 # =============
@@ -141,6 +141,14 @@ AC_SUBST(APPLE_RASTER_FILTER)
 
 AC_DEFINE(PDFTOPDF, [], [Needed for pdftopdf filter compilation])
 AC_DEFINE_DIR(BANNERTOPDF_DATADIR, "{CUPS_DATADIR}/data", [Directory where bannertopdf finds its data files (PDF templates)])
+
+AC_ARG_ENABLE([auto-setup-driverless], [AS_HELP_STRING([--enable-auto-setup-driverless], [enable automatic setup of IPP network printers with driverless printing support.])],
+        [enable_auto_setup_driverless="$enableval"],
+        [enable_auto_setup_driverless=no]
+)
+if test "x$enable_auto_setup_driverless" != "xno"; then
+	AC_DEFINE([DRIVERLESS_IPP_PRINTERS_AUTO_SETUP], [], [Auto-setup driverless IPP network printers?])
+fi
 
 AC_SEARCH_LIBS([dlopen],
 	[dl],
@@ -817,7 +825,11 @@ AC_CONFIG_FILES([
 	filter/braille/filters/cups-braille.sh
 	filter/braille/filters/imagetobrf
 	filter/braille/filters/texttobrf
+	filter/braille/filters/liblouis1.defs.gen
 	mime/cupsfilters.convs
+])
+AC_CONFIG_COMMANDS([executable-scripts], [
+	chmod +x filter/braille/filters/liblouis1.defs.gen
 ])
 AC_OUTPUT
 
@@ -861,5 +873,6 @@ Build configuration:
 	braille tables:  ${TABLESDIR}
 	driverless:      ${enable_driverless}
 	apple-raster:    ${APPLE_RASTER_FILTER}
+	driverless auto-setup: ${enable_auto_setup_driverless}
 ==============================================================================
 ])

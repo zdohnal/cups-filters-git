@@ -1,5 +1,99 @@
-NEWS - OpenPrinting CUPS Filters v1.13.4 - 2017-02-17
+NEWS - OpenPrinting CUPS Filters v1.14.1 - 2017-06-29
 -----------------------------------------------------
+
+CHANGES IN V1.14.1
+
+	- cups-browsed: Do correct removal of printer entry handling
+	  duplicates correctly also when a legacy CUPS-broadcasted
+	  printer disappears or a printer remaining from the last
+	  session does not appear again.
+	- cups-browsed: Use getline() instead of fgets() to read saved
+	  option settings. This is less crash-prone (Ubuntu bug
+	  #1658833).
+	- cups-browsed: Improved error logging when saving option
+          settings.
+	- cups-browsed: Added NULL checks for generate_local_queue()
+	  and create_local_queue() functions.
+	- cups-browsed: When accessing local CUPS queues use always
+	  the correct port of the CUPS daemon we are attached to.
+	- cups-browsed: Check whether a connection to the local CUPS
+	  daemon actually happened before using it (Ubuntu bug
+	  #1644049).
+	- cups-browsed: Set unused fields of printer record to NULL
+	  when tranfering data from the record of a duplicate printer
+	  to the record of a disappeared one.
+	- cups-browsed: Simplify removal of all queues on shutdown or
+	  stop of Avahi.
+	- cups-browsed: When creating a record for a discovered
+	  printer set it all zero before filling it in, to assure
+	  that no field is in an undefined state.
+	- cups-browsed: All functions which are called via Glib
+	  functions or otherwise event-triggered log now in which
+	  thread they are running. This way one can see whether
+	  problems can be caused by concurrent access to global
+	  resources.
+	- cups-browsed: Do not check whether the DNS-SD event is from
+	  the local machine in the browse_callback() function. We
+	  cannot check the port here.
+	- cups-browsed: Added more NULL checks to Avahi callback
+          functions.
+	- cups-browsed: Added NULL check to avoid crashes in the Avahi
+	  resolver callback (Ubuntu bug #1696967).
+	- libcupsfilters: Let PPD generator do case-insensitive
+	  comparisons for PWG Raster color spaces, as some printers
+	  (Epson) do not use the standard-conforming all-lowercase
+	  form for them (CUPS Issue #4998).
+
+CHANGES IN V1.14.0
+
+	- cups-browsed: When a printer is discovered via DNS-SD on the
+	  "lo" (loopback) interface the printer is not reliably
+	  accessible through the reported host name (which is the
+	  network host name of the local machine). Until this problem
+	  is fixed in Avahi, we create queues for such printers with a
+	  URI based on the IP address. This is a workaround until
+	  Avahi fully supports the "lo" interface.
+	- cups-browsed: Added new setting "LocalOnly" for the
+          CreateIPPPrinterQueues in cups-browsed.conf. With this new
+          setting (which is the default from now on) only for local
+          printers made available as IPP printers (like IPP-over-USB
+          printers with ippusbxd) queues are auto-created. With this
+          we can follow the common standard of distributions where USB
+          printers are automatically set up and network printers not.
+	- cups-browsed: Fixes and improvements in comments and debug
+	  messages: 1. Bonjour -> DNS-SD; 2. When a remote CUPS class
+	  is discovered, tell that it is a class; 3. Show network
+	  interface and IPv4/IPv6 when a DNS-Sd service appears or
+	  disappears.
+	- cups-browsed: Added ./configure script option
+	  "--enable-auto-setup-driverless" to let cups-browsed
+	  automatically set up IPP network printers by default.
+
+CHANGES IN V1.13.5
+
+	- foomatic-rip: When called via the utility cupsfilter from
+          CUPS, foomatic-rip was not able to read the PPD file with
+          the file name supplied as environment variable PPD (Bug
+          #1388).
+	- driverless: Improved error message output.
+	- libcupsfilters: Fixed error handling of the PPD file
+	  generator for driverless printing, so that callers get
+	  decent error messages.
+	- libcupsfilters: Do not generate a PPD file where the only
+	  output data format is JPEG, as JPEG does not support
+	  multi-page documents.
+	- libcupsfilters: Let PPD generator skip broken page size
+	  records and add warnings for debugging to the PPD.
+	- libcupsfilters: Updated PPD generator to match with the
+	  current GIT state of the one of CUPS.
+	- braille: Automatically select a table according to the
+	  current locale.
+	- braille: Update for liblouis table list.
+	- braille: Added support for text margins.
+	- cups-browsed: When creating a local queue for a remote CUPS
+	  printer, add the line '*APRemoteQueueID: ""' to the PPD file
+	  so that CUPS sets the CUPS_PRINTER_REMOTE bit for the
+	  printer type of the local queue (Bug #1386).
 
 CHANGES IN V1.13.4
 
