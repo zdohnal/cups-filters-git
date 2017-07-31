@@ -26,9 +26,14 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  pdf to raster filter
 */
 
+#include <config.h>
+#include <cups/cups.h>
+#if (CUPS_VERSION_MAJOR > 1) || (CUPS_VERSION_MINOR > 6)
+#define HAVE_CUPS_1_7 1
+#endif
+
 #define USE_CMS
 
-#include <config.h>
 #include <stdio.h>
 #include <stdlib.h>
 #ifdef HAVE_CPP_POPPLER_VERSION_H
@@ -41,13 +46,14 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "PDFDoc.h"
 #include "SplashOutputDev.h"
 #include "GfxState.h"
-#include <cups/cups.h>
 #include <cups/ppd.h>
 #include <stdarg.h>
 #include "PDFError.h"
 #include "GlobalParams.h"
 #include <cups/raster.h>
 #include <cupsfilters/image.h>
+#include <cupsfilters/raster.h>
+#include <cupsfilters/colormanager.h>
 #include <splash/SplashTypes.h>
 #include <splash/SplashBitmap.h>
 #include <strings.h>
@@ -56,6 +62,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <lcms.h>
 #define cmsColorSpaceSignature icColorSpaceSignature
 #define cmsSetLogErrorHandler cmsSetErrorHandler
+#define cmsToneCurve LPGAMMATABLE
 #define cmsSigXYZData icSigXYZData
 #define cmsSigLuvData icSigLuvData
 #define cmsSigLabData icSigLabData
@@ -100,6 +107,7 @@ namespace {
     unsigned int plane, unsigned int pixeli, unsigned char *pixelBuf);
 
   int exitCode = 0;
+  int pwgraster = 0;
   int deviceCopies = 1;
   bool deviceCollate = false;
   cups_page_header2_t header;
@@ -176,20 +184,118 @@ namespace {
     {3,11,1,9},
     {15,7,13,5} 
   };
+
   /* for color profiles */
   cmsHPROFILE colorProfile = NULL;
   cmsHPROFILE popplerColorProfile = NULL;
   cmsHTRANSFORM colorTransform = NULL;
   cmsCIEXYZ D65WhitePoint;
   int renderingIntent = INTENT_PERCEPTUAL;
+  int cm_disabled = 0;
+  cm_calibration_t cm_calibrate;
+}
+
+cmsCIExyY adobergb_wp()
+{
+    double * xyY = cmWhitePointAdobeRgb();
+    cmsCIExyY wp;
+
+    wp.x = xyY[0];
+    wp.y = xyY[1];
+    wp.Y = xyY[2];
+
+    return wp;
+}
+
+cmsCIExyY sgray_wp()
+{
+    double * xyY = cmWhitePointSGray();
+    cmsCIExyY wp;
+
+    wp.x = xyY[0];
+    wp.y = xyY[1];
+    wp.Y = xyY[2];
+
+    return wp;
+}
+
+cmsCIExyYTRIPLE adobergb_matrix()
+{
+    cmsCIExyYTRIPLE m;
+
+    double * matrix = cmMatrixAdobeRgb();
+    
+    m.Red.x = matrix[0];
+    m.Red.y = matrix[1];
+    m.Red.Y = matrix[2];
+    m.Green.x = matrix[3];
+    m.Green.y = matrix[4];
+    m.Green.Y = matrix[5];
+    m.Blue.x = matrix[6];
+    m.Blue.y = matrix[7];
+    m.Blue.Y = matrix[8];
+
+    return m;
+}
+
+cmsHPROFILE adobergb_profile()
+{
+    cmsHPROFILE adobergb;
+
+    cmsCIExyY wp;
+    cmsCIExyYTRIPLE primaries;
+
+#if USE_LCMS1
+    cmsToneCurve Gamma = cmsBuildGamma(256, 2.2);
+    cmsToneCurve Gamma3[3];
+#else
+    cmsToneCurve * Gamma = cmsBuildGamma(NULL, 2.2);
+    cmsToneCurve * Gamma3[3];
+#endif    
+    Gamma3[0] = Gamma3[1] = Gamma3[2] = Gamma;
+
+    // Build AdobeRGB profile
+    primaries = adobergb_matrix();
+    wp = adobergb_wp();
+    adobergb = cmsCreateRGBProfile(&wp, &primaries, Gamma3);
+
+    return adobergb;
+}
+
+cmsHPROFILE sgray_profile()
+{
+    cmsHPROFILE sgray;
+
+    cmsCIExyY wp;
+    cmsCIExyYTRIPLE primaries;
+
+#if USE_LCMS1
+    cmsToneCurve Gamma = cmsBuildGamma(256, 2.2);
+#else
+    cmsToneCurve * Gamma = cmsBuildGamma(NULL, 2.2);
+#endif 
+    // Build sGray profile
+    wp = sgray_wp();
+    sgray = cmsCreateGrayProfile(&wp, Gamma);
+
+    return sgray;
 }
 
 #if POPPLER_VERSION_MAJOR > 0 || POPPLER_VERSION_MINOR >= 19
+#if POPPLER_VERSION_MAJOR > 0 || POPPLER_VERSION_MINOR >= 23
+void CDECL myErrorFun(void *data, ErrorCategory category,
+    Goffset pos, char *msg)
+#else
 void CDECL myErrorFun(void *data, ErrorCategory category,
     int pos, char *msg)
+#endif
 {
   if (pos >= 0) {
+#if POPPLER_VERSION_MAJOR > 0 || POPPLER_VERSION_MINOR >= 23
+    fprintf(stderr, "ERROR (%lld): ", pos);
+#else
     fprintf(stderr, "ERROR (%d): ", pos);
+#endif
   } else {
     fprintf(stderr, "ERROR: ");
   }
@@ -224,6 +330,8 @@ static void lcmsErrorHandler(cmsContext contextId, cmsUInt32Number ErrorCode,
 }
 #endif
 
+
+#if 0
 static GBool getColorProfilePath(ppd_file_t *ppd, GooString *path)
 {
     // get color profile path
@@ -306,6 +414,7 @@ static GBool getColorProfilePath(ppd_file_t *ppd, GooString *path)
     }
     return gFalse;
 }
+#endif
 
 static void  handleRqeuiresPageRegion() {
   ppd_choice_t *mf;
@@ -348,6 +457,7 @@ static void parseOpts(int argc, char **argv)
   int num_options = 0;
   cups_option_t *options = 0;
   GooString profilePath;
+  char * profile = 0;
   ppd_attr_t *attr;
 
   if (argc < 6 || argc > 7) {
@@ -357,79 +467,119 @@ static void parseOpts(int argc, char **argv)
   }
 
   ppd = ppdOpenFile(getenv("PPD"));
-  if (ppd == NULL) {
-    pdfError(-1,const_cast<char *>("PPD file is not specified"));
-    exit(1);
-  }
-  ppdMarkDefaults(ppd);
+  if (ppd == NULL)
+    fprintf(stderr, "DEBUG: PPD file is not specified.\n");
+  if (ppd)
+    ppdMarkDefaults(ppd);
   options = NULL;
   num_options = cupsParseOptions(argv[5],0,&options);
-  cupsMarkOptions(ppd,num_options,options);
-  handleRqeuiresPageRegion();
-  cupsRasterInterpretPPD(&header,ppd,num_options,options,0);
-  attr = ppdFindAttr(ppd,"pdftorasterRenderingIntent",NULL);
-  if (attr != NULL && attr->value != NULL) {
-    if (strcasecmp(attr->value,"PERCEPTUAL") != 0) {
-      renderingIntent = INTENT_PERCEPTUAL;
-    } else if (strcasecmp(attr->value,"RELATIVE_COLORIMETRIC") != 0) {
-      renderingIntent = INTENT_RELATIVE_COLORIMETRIC;
-    } else if (strcasecmp(attr->value,"SATURATION") != 0) {
-      renderingIntent = INTENT_SATURATION;
-    } else if (strcasecmp(attr->value,"ABSOLUTE_COLORIMETRIC") != 0) {
-      renderingIntent = INTENT_ABSOLUTE_COLORIMETRIC;
-    }
-  }
-  if (header.Duplex) {
-    /* analyze options relevant to Duplex */
-    const char *backside = "";
-    /* APDuplexRequiresFlippedMargin */
-    enum {
-      FM_NO, FM_FALSE, FM_TRUE
-    } flippedMargin = FM_NO;
-
-    attr = ppdFindAttr(ppd,"cupsBackSide",NULL);
+  if (ppd) {
+    cupsMarkOptions(ppd,num_options,options);
+    handleRqeuiresPageRegion();
+    cupsRasterInterpretPPD(&header,ppd,num_options,options,0);
+    attr = ppdFindAttr(ppd,"pdftorasterRenderingIntent",NULL);
     if (attr != NULL && attr->value != NULL) {
-      ppd->flip_duplex = 0;
-      backside = attr->value;
-    } else if (ppd->flip_duplex) {
-      backside = "Rotated"; /* compatible with Max OS and GS 8.71 */
+      if (strcasecmp(attr->value,"PERCEPTUAL") != 0) {
+	renderingIntent = INTENT_PERCEPTUAL;
+      } else if (strcasecmp(attr->value,"RELATIVE_COLORIMETRIC") != 0) {
+	renderingIntent = INTENT_RELATIVE_COLORIMETRIC;
+      } else if (strcasecmp(attr->value,"SATURATION") != 0) {
+	renderingIntent = INTENT_SATURATION;
+      } else if (strcasecmp(attr->value,"ABSOLUTE_COLORIMETRIC") != 0) {
+	renderingIntent = INTENT_ABSOLUTE_COLORIMETRIC;
+      }
+    }
+    if (header.Duplex) {
+      /* analyze options relevant to Duplex */
+      const char *backside = "";
+      /* APDuplexRequiresFlippedMargin */
+      enum {
+	FM_NO, FM_FALSE, FM_TRUE
+      } flippedMargin = FM_NO;
+
+      attr = ppdFindAttr(ppd,"cupsBackSide",NULL);
+      if (attr != NULL && attr->value != NULL) {
+	ppd->flip_duplex = 0;
+	backside = attr->value;
+      } else if (ppd->flip_duplex) {
+	backside = "Rotated"; /* compatible with Max OS and GS 8.71 */
+      }
+
+      attr = ppdFindAttr(ppd,"APDuplexRequiresFlippedMargin",NULL);
+      if (attr != NULL && attr->value != NULL) {
+	if (strcasecmp(attr->value,"true") == 0) {
+	  flippedMargin = FM_TRUE;
+	} else {
+	  flippedMargin = FM_FALSE;
+	}
+      }
+      if (strcasecmp(backside,"ManualTumble") == 0 && header.Tumble) {
+	swap_image_x = swap_image_y = true;
+	swap_margin_x = swap_margin_y = true;
+	if (flippedMargin == FM_TRUE) {
+	  swap_margin_y = false;
+	}
+      } else if (strcasecmp(backside,"Rotated") == 0 && !header.Tumble) {
+	swap_image_x = swap_image_y = true;
+	swap_margin_x = swap_margin_y = true;
+	if (flippedMargin == FM_TRUE) {
+	  swap_margin_y = false;
+	}
+      } else if (strcasecmp(backside,"Flipped") == 0) {
+	if (header.Tumble) {
+	  swap_image_x = true;
+	  swap_margin_x = swap_margin_y = true;
+	} else {
+	  swap_image_y = true;
+	}
+	if (flippedMargin == FM_FALSE) {
+	  swap_margin_y = !swap_margin_y;
+	}
+      }
     }
 
-    attr = ppdFindAttr(ppd,"APDuplexRequiresFlippedMargin",NULL);
-    if (attr != NULL && attr->value != NULL) {
-      if (strcasecmp(attr->value,"true") == 0) {
-        flippedMargin = FM_TRUE;
-      } else {
-        flippedMargin = FM_FALSE;
-      }
+    /* support the CUPS "cm-calibration" option */
+    cm_calibrate = cmGetCupsColorCalibrateMode(options, num_options);
+
+    if (cm_calibrate == CM_CALIBRATION_ENABLED)
+      cm_disabled = 1;
+    else 
+      cm_disabled = cmIsPrinterCmDisabled(getenv("PRINTER"));
+       
+    if (!cm_disabled) 
+      cmGetPrinterIccProfile(getenv("PRINTER"), &profile, ppd);
+
+    if (profile != NULL)
+      colorProfile = cmsOpenProfileFromFile(profile,"r");    
+
+#ifdef HAVE_CUPS_1_7
+    if ((attr = ppdFindAttr(ppd,"PWGRaster",0)) != 0 &&
+	(!strcasecmp(attr->value, "true")
+	 || !strcasecmp(attr->value, "on") ||
+	 !strcasecmp(attr->value, "yes")))
+    {
+      pwgraster = 1;
+      cupsRasterParseIPPOptions(&header, num_options, options, pwgraster, 0);
     }
-    if (strcasecmp(backside,"ManualTumble") == 0 && header.Tumble) {
-      swap_image_x = swap_image_y = true;
-      swap_margin_x = swap_margin_y = true;
-      if (flippedMargin == FM_TRUE) {
-        swap_margin_y = false;
-      }
-    } else if (strcasecmp(backside,"Rotated") == 0 && !header.Tumble) {
-      swap_image_x = swap_image_y = true;
-      swap_margin_x = swap_margin_y = true;
-      if (flippedMargin == FM_TRUE) {
-        swap_margin_y = false;
-      }
-    } else if (strcasecmp(backside,"Flipped") == 0) {
-      if (header.Tumble) {
-        swap_image_x = true;
-        swap_margin_x = swap_margin_y = true;
-      } else {
-        swap_image_y = true;
-      }
-      if (flippedMargin == FM_FALSE) {
-        swap_margin_y = !swap_margin_y;
-      }
+#endif /* HAVE_CUPS_1_7 */
+  } else {
+#ifdef HAVE_CUPS_1_7
+    pwgraster = 1;
+    const char *t = cupsGetOption("media-class", num_options, options);
+    if (t == NULL)
+      t = cupsGetOption("MediaClass", num_options, options);
+    if (t != NULL)
+    {
+      if (strcasestr(t, "pwg"))
+	pwgraster = 1;
+      else
+	pwgraster = 0; 
     }
-  }
-  if (getColorProfilePath(ppd,&profilePath)) {
-    /* ICCProfile is specified */
-    colorProfile = cmsOpenProfileFromFile(profilePath.getCString(),"r");
+    cupsRasterParseIPPOptions(&header,num_options,options,pwgraster,1);
+#else
+    fprintf(stderr, "ERROR: No PPD file specified.\n");
+    exit(1);
+#endif /* HAVE_CUPS_1_7 */
   }
 }
 
@@ -698,8 +848,12 @@ static FuncTable specialCaseFuncs[] = {
   {CUPS_CSPACE_KCMY,32,8,rgbToKCMYLine,true,rgbToKCMYLineSwap,true},
   {CUPS_CSPACE_CMY,24,8,rgbToCMYLine,true,rgbToCMYLineSwap,true},
   {CUPS_CSPACE_RGB,24,8,lineNoop,false,lineSwap24,true},
+  {CUPS_CSPACE_SRGB,24,8,lineNoop,false,lineSwap24,true},
+  {CUPS_CSPACE_ADOBERGB,24,8,lineNoop,false,lineSwap24,true},
   {CUPS_CSPACE_W,8,8,lineNoop,false,lineSwapByte,true},
   {CUPS_CSPACE_W,1,1,lineNoop,false,lineSwapBit,true},
+  {CUPS_CSPACE_SW,8,8,lineNoop,false,lineSwapByte,true},
+  {CUPS_CSPACE_SW,1,1,lineNoop,false,lineSwapBit,true},
   {CUPS_CSPACE_WHITE,8,8,lineNoop,false,lineSwapByte,true},
   {CUPS_CSPACE_WHITE,1,1,lineNoop,false,lineSwapBit,true},
   {CUPS_CSPACE_RGB,0,0,NULL,false,NULL,false} /* end mark */
@@ -1245,8 +1399,6 @@ static unsigned int getCMSColorSpaceType(cmsColorSpaceSignature cs)
 /* select convertLine function */
 static void selectConvertFunc(cups_raster_t *raster)
 {
-  /* select convertLine function */
-
   if ((colorProfile == NULL || popplerColorProfile == colorProfile) 
       && (header.cupsColorOrder == CUPS_ORDER_CHUNKED
        || header.cupsNumColors == 1)) {
@@ -1381,9 +1533,12 @@ static void selectConvertFunc(cups_raster_t *raster)
       convertCSpace = RGB8toRGBA;
       break;
     case CUPS_CSPACE_RGB:
+    case CUPS_CSPACE_SRGB:
+    case CUPS_CSPACE_ADOBERGB:
       convertCSpace = convertCSpaceNone;
       break;
     case CUPS_CSPACE_W:
+    case CUPS_CSPACE_SW:
     case CUPS_CSPACE_WHITE:
       convertCSpace = convertCSpaceNone;
       break;
@@ -1492,11 +1647,7 @@ static void writePageImage(cups_raster_t *raster, SplashBitmap *bitmap,
         for (unsigned int band = 0;band < nbands;band++) {
           dp = convertLine(bp,lineBuf,h,plane+band,header.cupsWidth,
                  bytesPerLine);
-          if (cupsRasterWritePixels(raster,dp,bytesPerLine)
-               != bytesPerLine) {
-            pdfError(-1,const_cast<char *>("Can't write page %d image"),pageNo);
-            exit(1);
-          }
+          cupsRasterWritePixels(raster,dp,bytesPerLine);
         }
         bp -= rowsize;
       }
@@ -1511,11 +1662,7 @@ static void writePageImage(cups_raster_t *raster, SplashBitmap *bitmap,
         for (unsigned int band = 0;band < nbands;band++) {
           dp = convertLine(bp,lineBuf,h,plane+band,header.cupsWidth,
                  bytesPerLine);
-          if (cupsRasterWritePixels(raster,dp,bytesPerLine)
-               != bytesPerLine) {
-            pdfError(-1,const_cast<char *>("Can't write page %d image"),pageNo);
-            exit(1);
-          }
+          cupsRasterWritePixels(raster,dp,bytesPerLine);
         }
         bp += rowsize;
       }
@@ -1530,6 +1677,7 @@ static void outPage(PDFDoc *doc, Catalog *catalog, int pageNo,
   SplashBitmap *bitmap;
   Page *page = catalog->getPage(pageNo);
   PDFRectangle *mediaBox = page->getMediaBox();
+  int rotate = page->getRotate();
   double paperdimensions[2], /* Physical size of the paper */
     margins[4];	/* Physical margins of print */
   ppd_size_t *size;		/* Page size */
@@ -1537,59 +1685,40 @@ static void outPage(PDFDoc *doc, Catalog *catalog, int pageNo,
   int i;
   bool landscape = 0;
 
-  fprintf(stderr, "DEBUG: mediaBox = [ %f %f %f %f ]\n",
-	  mediaBox->x1, mediaBox->y1, mediaBox->x2, mediaBox->y2);
+  fprintf(stderr, "DEBUG: mediaBox = [ %f %f %f %f ]; rotate = %d\n",
+	  mediaBox->x1, mediaBox->y1, mediaBox->x2, mediaBox->y2, rotate);
   l = mediaBox->x2 - mediaBox->x1;
   if (l < 0) l = -l;
-  header.PageSize[0] = (unsigned)l;
+  if (rotate == 90 || rotate == 270)
+    header.PageSize[1] = (unsigned)l;
+  else
+    header.PageSize[0] = (unsigned)l;
   l = mediaBox->y2 - mediaBox->y1;
   if (l < 0) l = -l;
-  header.PageSize[1] = (unsigned)l;
+  if (rotate == 90 || rotate == 270)
+    header.PageSize[0] = (unsigned)l;
+  else
+    header.PageSize[1] = (unsigned)l;
 
   memset(paperdimensions, 0, sizeof(paperdimensions));
   memset(margins, 0, sizeof(margins));
-  for (i = ppd->num_sizes, size = ppd->sizes;
-       i > 0;
-       i --, size ++) {
-    /* Skip page sizes which conflict with settings of the other options */
-    /* TODO XXX */
-    /* Find size of document's page under the PPD page sizes */
-    if (fabs(header.PageSize[1] - size->length) < 5.0 &&
-	fabs(header.PageSize[0] - size->width) < 5.0)
-      break;
-  }
-  if (i > 0) {
-    /*
-     * Standard size...
-     */
-    fprintf(stderr, "DEBUG: size = %s\n", size->name);
-    landscape = 0;
-    paperdimensions[0] = size->width;
-    paperdimensions[1] = size->length;
-    margins[0] = size->left;
-    margins[1] = size->bottom;
-    margins[2] = size->width - size->right;
-    margins[3] = size->length - size->top;
-    strncpy(header.cupsPageSizeName, size->name, 64);
-  } else {
-    /*
-     * No matching portrait size; look for a matching size in
-     * landscape orientation...
-     */
-
+  if (ppd) {
     for (i = ppd->num_sizes, size = ppd->sizes;
 	 i > 0;
-	 i --, size ++)
-      if (fabs(header.PageSize[0] - size->length) < 5.0 &&
-	  fabs(header.PageSize[1] - size->width) < 5.0)
+	 i --, size ++) {
+      /* Skip page sizes which conflict with settings of the other options */
+      /* TODO XXX */
+      /* Find size of document's page under the PPD page sizes */
+      if (fabs(header.PageSize[1] - size->length) < 5.0 &&
+	  fabs(header.PageSize[0] - size->width) < 5.0)
 	break;
-
+    }
     if (i > 0) {
       /*
-       * Standard size in landscape orientation...
+       * Standard size...
        */
-      fprintf(stderr, "DEBUG: landscape size = %s\n", size->name);
-      landscape = 1;
+      fprintf(stderr, "DEBUG: size = %s\n", size->name);
+      landscape = 0;
       paperdimensions[0] = size->width;
       paperdimensions[1] = size->length;
       margins[0] = size->left;
@@ -1599,17 +1728,61 @@ static void outPage(PDFDoc *doc, Catalog *catalog, int pageNo,
       strncpy(header.cupsPageSizeName, size->name, 64);
     } else {
       /*
-       * Custom size...
+       * No matching portrait size; look for a matching size in
+       * landscape orientation...
        */
-      fprintf(stderr, "DEBUG: size = Custom\n");
-      landscape = 0;
-      paperdimensions[1] = size->length;
-      for (i = 0; i < 2; i ++)
-	paperdimensions[i] = header.PageSize[i];
-      for (i = 0; i < 4; i ++)
-	margins[i] = ppd->custom_margins[i];
-      header.cupsPageSizeName[0] = '\0';
+
+      for (i = ppd->num_sizes, size = ppd->sizes;
+	   i > 0;
+	   i --, size ++)
+	if (fabs(header.PageSize[0] - size->length) < 5.0 &&
+	    fabs(header.PageSize[1] - size->width) < 5.0)
+	  break;
+
+      if (i > 0) {
+	/*
+	 * Standard size in landscape orientation...
+	 */
+	fprintf(stderr, "DEBUG: landscape size = %s\n", size->name);
+	landscape = 1;
+	paperdimensions[0] = size->width;
+	paperdimensions[1] = size->length;
+	margins[0] = size->left;
+	margins[1] = size->bottom;
+	margins[2] = size->width - size->right;
+	margins[3] = size->length - size->top;
+	strncpy(header.cupsPageSizeName, size->name, 64);
+      } else {
+	/*
+	 * Custom size...
+	 */
+	fprintf(stderr, "DEBUG: size = Custom\n");
+	landscape = 0;
+	paperdimensions[1] = size->length;
+	for (i = 0; i < 2; i ++)
+	  paperdimensions[i] = header.PageSize[i];
+	for (i = 0; i < 4; i ++)
+	  margins[i] = ppd->custom_margins[i];
+	header.cupsPageSizeName[0] = '\0';
+      }
     }
+  } else {
+    for (i = 0; i < 2; i ++)
+      paperdimensions[i] = header.PageSize[i];
+    if (header.cupsImagingBBox[3] > 0.0) {
+      /* Set margins if we have a bounding box defined ... */
+      margins[0] = header.cupsImagingBBox[0];
+      margins[1] = header.cupsImagingBBox[1];
+      margins[2] = paperdimensions[0] - header.cupsImagingBBox[2];
+      margins[3] = paperdimensions[1] - header.cupsImagingBBox[3];
+    } else
+      /* ... otherwise use zero margins */
+      for (i = 0; i < 4; i ++)
+	margins[i] = 0.0;
+    /*margins[0] = 0.0;
+    margins[1] = 0.0;
+    margins[2] = header.PageSize[0];
+    margins[3] = header.PageSize[1];*/
   }
 
   if (header.Duplex && (pageNo & 1) == 0) {
@@ -1630,21 +1803,31 @@ static void outPage(PDFDoc *doc, Catalog *catalog, int pageNo,
   bitmapoffset[1] = margins[3] / 72.0 * header.HWResolution[1];
 
   /* write page header */
-  header.cupsWidth = (paperdimensions[0] - margins[0] - margins[2]) / 72.0 * 
-    header.HWResolution[0];
-  header.cupsHeight = (paperdimensions[1] - margins[1] - margins[3]) / 72.0 *
-    header.HWResolution[1];
+  header.cupsWidth = ((paperdimensions[0] - margins[0] - margins[2]) /
+		      72.0 * header.HWResolution[0]) + 0.5;
+  header.cupsHeight = ((paperdimensions[1] - margins[1] - margins[3]) /
+		       72.0 * header.HWResolution[1] + 0.5);
   for (i = 0; i < 2; i ++) {
     header.cupsPageSize[i] = paperdimensions[i];
-    header.PageSize[i] = (unsigned int)header.cupsPageSize[i];
-    header.Margins[i] = margins[i];
+    header.PageSize[i] = (unsigned int)(header.cupsPageSize[i] + 0.5);
+    if (strcasecmp(header.MediaClass, "PwgRaster") != 0)
+      header.Margins[i] = margins[i] + 0.5;
+    else
+      header.Margins[i] = 0;
   }
-  header.cupsImagingBBox[0] = margins[0];
-  header.cupsImagingBBox[1] = margins[1];
-  header.cupsImagingBBox[2] = paperdimensions[0]-margins[2];
-  header.cupsImagingBBox[3] = paperdimensions[1]-margins[3];
-  for (i = 0; i < 4; i ++)
-    header.ImagingBoundingBox[i] = (unsigned int)header.cupsImagingBBox[i];
+  if (strcasecmp(header.MediaClass, "PwgRaster") != 0) {
+    header.cupsImagingBBox[0] = margins[0];
+    header.cupsImagingBBox[1] = margins[1];
+    header.cupsImagingBBox[2] = paperdimensions[0] - margins[2];
+    header.cupsImagingBBox[3] = paperdimensions[1] - margins[3];
+    for (i = 0; i < 4; i ++)
+      header.ImagingBoundingBox[i] =
+	(unsigned int)(header.cupsImagingBBox[i] + 0.5);
+  } else
+    for (i = 0; i < 4; i ++) {
+      header.cupsImagingBBox[i] = 0.0;
+      header.ImagingBoundingBox[i] = 0;
+    }
 
   bytesPerLine = header.cupsBytesPerLine = (header.cupsBitsPerPixel *
     header.cupsWidth + 7) / 8;
@@ -1707,6 +1890,15 @@ static void setPopplerColorProfile()
       colorProfile = cmsCreateLab4Profile(&wp);
     }
     break;
+  case CUPS_CSPACE_SRGB:
+    colorProfile = cmsCreate_sRGBProfile();
+    break;
+  case CUPS_CSPACE_ADOBERGB:
+    colorProfile = adobergb_profile();
+    break;
+  case CUPS_CSPACE_SW:
+    colorProfile = sgray_profile();
+    break;
   case CUPS_CSPACE_RGB:
   case CUPS_CSPACE_K:
   case CUPS_CSPACE_W:
@@ -1762,19 +1954,15 @@ int main(int argc, char *argv[]) {
   if (argc == 6) {
     /* stdin */
     int fd;
-    Object obj;
-    BaseStream *str;
-    FILE *fp;
+    char name[BUFSIZ];
     char buf[BUFSIZ];
     int n;
 
-    fd = cupsTempFd(buf,sizeof(buf));
+    fd = cupsTempFd(name,sizeof(name));
     if (fd < 0) {
       pdfError(-1,const_cast<char *>("Can't create temporary file"));
       exit(1);
     }
-    /* remove name */
-    unlink(buf);
 
     /* copy stdin to the tmp file */
     while ((n = read(0,buf,BUFSIZ)) > 0) {
@@ -1784,23 +1972,10 @@ int main(int argc, char *argv[]) {
 	exit(1);
       }
     }
-    if (lseek(fd,0,SEEK_SET) < 0) {
-        pdfError(-1,const_cast<char *>("Can't rewind temporary file"));
-        close(fd);
-	exit(1);
-    }
-
-    if ((fp = fdopen(fd,"rb")) == 0) {
-        pdfError(-1,const_cast<char *>("Can't fdopen temporary file"));
-        close(fd);
-	exit(1);
-    }
-
-    obj.initNull();
-    parsePDFTOPDFComment(fp);
-    rewind(fp);
-    str = new FileStream(fp,0,gFalse,0,&obj);
-    doc = new PDFDoc(str);
+    close(fd);
+    doc = new PDFDoc(new GooString(name));
+    /* remove name */
+    unlink(name);
   } else {
     GooString *fileName = new GooString(argv[6]);
     /* argc == 7 filenmae is specified */
@@ -1874,6 +2049,8 @@ int main(int argc, char *argv[]) {
       exit(1);
     }
   case CUPS_CSPACE_RGB:
+  case CUPS_CSPACE_SRGB:
+  case CUPS_CSPACE_ADOBERGB:
   case CUPS_CSPACE_CMY:
   case CUPS_CSPACE_YMC:
   case CUPS_CSPACE_CMYK:
@@ -1895,6 +2072,7 @@ int main(int argc, char *argv[]) {
     break;
   case CUPS_CSPACE_K:
   case CUPS_CSPACE_W:
+  case CUPS_CSPACE_SW:
   case CUPS_CSPACE_WHITE:
   case CUPS_CSPACE_GOLD:
   case CUPS_CSPACE_SILVER:
@@ -1917,17 +2095,24 @@ int main(int argc, char *argv[]) {
     break;
   }
 
-  setPopplerColorProfile();
+  if (!cm_disabled) {
+    setPopplerColorProfile();
+  }
 
   out = new SplashOutputDev(cmode,rowpad/* row padding */,
-    gFalse,paperColor,gTrue,gFalse);
+    gFalse,paperColor,gTrue
+#if POPPLER_VERSION_MAJOR == 0 && POPPLER_VERSION_MINOR <= 30
+    ,gFalse
+#endif
+    );
 #if POPPLER_VERSION_MAJOR > 0 || POPPLER_VERSION_MINOR >= 19
   out->startDoc(doc);
 #else
   out->startDoc(doc->getXRef());
 #endif
 
-  if ((raster = cupsRasterOpen(1,CUPS_RASTER_WRITE)) == 0) {
+  if ((raster = cupsRasterOpen(1, pwgraster ? CUPS_RASTER_WRITE_PWG :
+			       CUPS_RASTER_WRITE)) == 0) {
         pdfError(-1,const_cast<char *>("Can't open raster stream"));
 	exit(1);
   }
@@ -1961,8 +2146,13 @@ err1:
 }
 
 /* replace memory allocation methods for memory check */
+/* For compatibility with g++ >= 4.7 compilers _GLIBCXX_THROW
+ *  should be used as a guard, otherwise use traditional definition */
+#ifndef _GLIBCXX_THROW
+#define _GLIBCXX_THROW throw
+#endif
 
-void * operator new(size_t size) throw (std::bad_alloc)
+void * operator new(size_t size) _GLIBCXX_THROW (std::bad_alloc)
 {
   return gmalloc(size);
 }
@@ -1972,7 +2162,7 @@ void operator delete(void *p) throw ()
   gfree(p);
 }
 
-void * operator new[](size_t size) throw (std::bad_alloc)
+void * operator new[](size_t size) _GLIBCXX_THROW (std::bad_alloc)
 {
   return gmalloc(size);
 }

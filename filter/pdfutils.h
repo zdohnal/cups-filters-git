@@ -3,9 +3,8 @@
  *
  *   Copyright 2008 by Tobias Hoffmann.
  *
- *   This file is licensed as noted in "LICENSE.txt" 
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
+ *   This file is licensed as noted in "COPYING" 
+ *   which should have been included with this file.
  *
  */
 #include <time.h>
@@ -42,7 +41,8 @@ void pdfOut_finish_pdf(pdfOut *pdf);
 /* General output routine for our pdf.
  * Keeps track of characters actually written out
  */
-void pdfOut_printf(pdfOut *pdf,const char *fmt,...);
+void pdfOut_printf(pdfOut *pdf,const char *fmt,...)
+  __attribute__((format(printf, 2, 3)));
 
 /* write out an escaped pdf string: e.g.  (Text \(Test\)\n)
  * >len==-1: use strlen(str) 

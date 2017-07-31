@@ -112,11 +112,20 @@ static int outOnePage(PDFDoc *doc, OPVPOutputDev *opvpOut, int pg)
 #define MAX_OPVP_OPTIONS 20
 
 #if POPPLER_VERSION_MAJOR > 0 || POPPLER_VERSION_MINOR >= 19
+#if POPPLER_VERSION_MAJOR > 0 || POPPLER_VERSION_MINOR >= 23
+void CDECL myErrorFun(void *data, ErrorCategory category,
+    Goffset pos, char *msg)
+#else
 void CDECL myErrorFun(void *data, ErrorCategory category,
     int pos, char *msg)
+#endif
 {
   if (pos >= 0) {
+#if POPPLER_VERSION_MAJOR > 0 || POPPLER_VERSION_MINOR >= 23
+    fprintf(stderr, "ERROR (%lld): ", pos);
+#else
     fprintf(stderr, "ERROR (%d): ", pos);
+#endif
   } else {
     fprintf(stderr, "ERROR: ");
   }
@@ -605,7 +614,9 @@ exit(0);
       ok = gFalse;
     }
   }
+#if POPPLER_VERSION_MAJOR == 0 && POPPLER_VERSION_MINOR <= 30
   globalParams->setAntialias("no");
+#endif
   if (quiet) {
     globalParams->setErrQuiet(quiet);
   }
@@ -619,9 +630,6 @@ exit(0);
     char *s;
     GooString name;
     int fd;
-    Object obj;
-    BaseStream *str;
-    FILE *fp;
     char buf[4096];
     int n;
 
@@ -633,8 +641,6 @@ exit(0);
     }
     name.append("/XXXXXX");
     fd = mkstemp(name.getCString());
-    /* remove name */
-    unlink(name.getCString());
     if (fd < 0) {
       opvpError(-1,"Can't create temporary file");
       exitCode = 2;
@@ -675,23 +681,10 @@ exit(0);
 	goto err0;
       }
     }
-    if (lseek(fd,0,SEEK_SET) < 0) {
-	opvpError(-1,"Can't rewind temporary file");
-	close(fd);
-	exitCode = 2;
-	goto err0;
-    }
-
-    if ((fp = fdopen(fd,"rb")) == 0) {
-	opvpError(-1,"Can't fdopen temporary file");
-	close(fd);
-	exitCode = 2;
-	goto err0;
-    }
-
-    obj.initNull();
-    str = new FileStream(fp,0,gFalse,0,&obj);
-    doc = new PDFDoc(str);
+    close(fd);
+    doc = new PDFDoc(&name);
+    /* remove name */
+    unlink(name.getCString());
   } else {
     /* no jcl check */
     doc = new PDFDoc(fileName.copy());
@@ -777,7 +770,13 @@ err2:
 }
 
 /* for memory debug */
-void *operator new(size_t size) throw (std::bad_alloc)
+/* For compatibility with g++ >= 4.7 compilers _GLIBCXX_THROW
+ *  should be used as a guard, otherwise use traditional definition */
+#ifndef _GLIBCXX_THROW
+#define _GLIBCXX_THROW throw
+#endif
+
+void * operator new(size_t size) _GLIBCXX_THROW (std::bad_alloc)
 {
     void *p = malloc(size);
     return p;

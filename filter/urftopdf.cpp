@@ -26,6 +26,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits>
+#include <errno.h>
 
 #include <arpa/inet.h>   // ntohl
 
@@ -53,7 +55,7 @@
 
 void die(const char * str)
 {
-    fprintf(stderr, "CRIT: (" PROGRAM ") die(%s) [%m]\n", str);
+    fprintf(stderr, "CRIT: (" PROGRAM ") die(%s) [%s]\n", str, strerror(errno));
     exit(1);
 }
 
@@ -194,6 +196,9 @@ int add_pdf_page(struct pdf_info * info, int pagen, unsigned width, unsigned hei
         info->line_bytes = (width*info->pixel_bytes);
         info->bpp = bpp;
     
+        if (info->height > (std::numeric_limits<unsigned>::max() / info->line_bytes)) {
+            die("Page too big");
+        }
         info->page_data = PointerHolder<Buffer>(new Buffer(info->line_bytes*info->height));
 
         QPDFObjectHandle page = QPDFObjectHandle::parse(
@@ -283,6 +288,9 @@ int decode_raster(int fd, unsigned width, unsigned height, int bpp, struct pdf_i
     std::vector<uint8_t> pixel_container;
     std::vector<uint8_t> line_container;
 
+    if (width > (std::numeric_limits<unsigned>::max() / pixel_size)) {
+        die("Line too big");
+    }
     try {
         pixel_container.resize(pixel_size);
         line_container.resize(pixel_size*width);

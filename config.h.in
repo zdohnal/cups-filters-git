@@ -12,6 +12,9 @@
 /* CUPS datadir */
 #undef CUPS_DATADIR
 
+/* "Domain socket of CUPS" */
+#undef CUPS_DEFAULT_DOMAINSOCKET
+
 /* Path to CUPS fonts dir */
 #undef CUPS_FONTPATH
 
@@ -35,6 +38,9 @@
 
 /* CUPS serverroot */
 #undef CUPS_SERVERROOT
+
+/* Transient run-time state dir of CUPS */
+#undef CUPS_STATEDIR
 
 /* Define that we provide acroread. */
 #undef HAVE_ACROREAD
@@ -72,6 +78,18 @@
 /* Define to 1 if you have the <jpeglib.h> header file. */
 #undef HAVE_JPEGLIB_H
 
+/* Define if LDAP support should be enabled */
+#undef HAVE_LDAP
+
+/* If libldap implements ldap_set_rebind_proc */
+#undef HAVE_LDAP_REBIND_PROC
+
+/* If LDAP has SSL/TLS support enabled */
+#undef HAVE_LDAP_SSL
+
+/* Define to 1 if you have the <ldap_ssl.h> header file. */
+#undef HAVE_LDAP_SSL_H
+
 /* Defines if we provide jpeg library. */
 #undef HAVE_LIBJPEG
 
@@ -89,6 +107,12 @@
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
+
+/* If LDAP support is that of Mozilla */
+#undef HAVE_MOZILLA_LDAP
+
+/* If LDAP support is that of OpenLDAP */
+#undef HAVE_OPENLDAP
 
 /* Define to 1 if you have the `open_memstream' function. */
 #undef HAVE_OPEN_MEMSTREAM
@@ -123,6 +147,12 @@
 /* Define to 1 if you have the <string.h> header file. */
 #undef HAVE_STRING_H
 
+/* Define to 1 if you have the `strlcat' function. */
+#undef HAVE_STRLCAT
+
+/* Define to 1 if you have the `strlcpy' function. */
+#undef HAVE_STRLCPY
+
 /* Define to 1 if you have the `strtoll' function. */
 #undef HAVE_STRTOLL
 
@@ -150,12 +180,8 @@
 /* Define to 1 if you have the <zlib.h> header file. */
 #undef HAVE_ZLIB_H
 
-/* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
+/* Define to the sub-directory where libtool stores uninstalled libraries. */
 #undef LT_OBJDIR
-
-/* Define to 1 if your C compiler doesn't accept -c and -o together. */
-#undef NO_MINUS_C_MINUS_O
 
 /* Name of package */
 #undef PACKAGE
@@ -180,6 +206,9 @@
 
 /* Needed for pdftopdf filter compilation */
 #undef PDFTOPDF
+
+/* Path for a modern shell */
+#undef SHELL
 
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS

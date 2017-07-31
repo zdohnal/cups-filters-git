@@ -1,28 +1,29 @@
 /*
- * "$Id$"
- *
  *   PDF to PostScript filter front-end for CUPS.
  *
  *   Copyright 2007-2011 by Apple Inc.
  *   Copyright 1997-2006 by Easy Software Products.
- *   Copyright 2011-2012 by Till Kamppeter
+ *   Copyright 2011-2013 by Till Kamppeter
  *
  *   These coded instructions, statements, and computer programs are the
  *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
+ *   law.  Distribution and use rights are outlined in the file "COPYING"
+ *   which should have been included with this file.
  *
  * Contents:
  *
- *   main()       - Main entry for filter...
- *   cancel_job() - Flag the job as canceled.
+ *   parsePDFTOPDFComment() - Check whether we are executed after pdftopdf
+ *   remove_options()       - Remove unwished entries from an option list
+ *   log_command_line()     - Log the command line of a program which we call
+ *   main()                 - Main entry for filter...
+ *   cancel_job()           - Flag the job as canceled.
  */
 
 /*
  * Include necessary headers...
  */
 
+#include <config.h>
 #include <cups/cups.h>
 #include <cups/ppd.h>
 #include <cups/file.h>
@@ -32,7 +33,6 @@
 #include <errno.h>
 #include <string.h>
 #include <ctype.h>
-#include <config.h>
 #include <cupsfilters/image-private.h>
 
 #define MAX_CHECK_COMMENT_LINES	20
@@ -42,7 +42,7 @@
  */
 
 typedef unsigned renderer_t;
-enum renderer_e {GS = 0, PDFTOPS = 1, ACROREAD = 2, PDFTOCAIRO = 3};
+enum renderer_e {GS = 0, PDFTOPS = 1, ACROREAD = 2, PDFTOCAIRO = 3, HYBRID = 4};
 
 /*
  * Local functions...
@@ -59,6 +59,7 @@ static int		job_canceled = 0;
 int			pdftopdfapplied = 0;
 char			deviceCopies[32] = "1";
 int			deviceCollate = 0;
+char                    make_model[128] = "";
 
 
 /*
@@ -224,6 +225,33 @@ void remove_options(char *options_str, const char **option_list)
 
 
 /*
+ * Before calling any command line utility, log its command line in CUPS'
+ * debug mode
+ */
+
+void
+log_command_line(const char* file, char *const argv[])
+{
+  int i;
+  char *apos;
+
+  /* Debug output: Full command line of program to be called */
+  fprintf(stderr, "DEBUG: Running command line for %s:",
+	  (file ? file : argv[0]));
+  if (file)
+    fprintf(stderr, " %s", file);
+  for (i = (file ? 1 : 0); argv[i]; i ++) {
+    if ((strchr(argv[i],' ')) || (strchr(argv[i],'\t')))
+      apos = "'";
+    else
+      apos = "";
+    fprintf(stderr, " %s%s%s", apos, argv[i], apos);
+  }
+  fprintf(stderr, "\n");
+}
+
+
+/*
  * 'main()' - Main entry for filter...
  */
 
@@ -231,7 +259,7 @@ int					/* O - Exit status */
 main(int  argc,				/* I - Number of command-line args */
      char *argv[])			/* I - Command-line arguments */
 {
-  renderer_t    renderer = CUPS_PDFTOPS_RENDERER; /* Renderer: gs or pdftops or acroread */
+  renderer_t    renderer = CUPS_PDFTOPS_RENDERER; /* Renderer: gs or pdftops or acroread or pdftocairo or hybrid */
   int		fd = 0;			/* Copy file descriptor */
   char		*filename,		/* PDF file to convert */
 		tempfile[1024];		/* Temporary file */
@@ -240,12 +268,10 @@ main(int  argc,				/* I - Number of command-line args */
   int		num_options;		/* Number of options */
   cups_option_t	*options;		/* Options */
   const char	*val;			/* Option value */
-  int		orientation,		/* Output orientation */
-		fit;			/* Fit output to default page size? */
   ppd_file_t	*ppd;			/* PPD file */
-  ppd_size_t	*size;			/* Current page size */
-  char		resolution[128] = "300";/* Output resolution */
+  char		resolution[128] = "";   /* Output resolution */
   int           xres = 0, yres = 0,     /* resolution values */
+                mres, res,
                 maxres = CUPS_PDFTOPS_MAX_RESOLUTION,
                                         /* Maximum image rendering resolution */
                 numvalues;              /* Number of values actually read */
@@ -265,14 +291,14 @@ main(int  argc,				/* I - Number of command-line args */
 		wait_status,		/* Status from child */
 		exit_status = 0;	/* Exit status */
   char		*pdf_argv[100],		/* Arguments for pdftops/gs */
-		pdf_width[255],		/* Paper width */
-		pdf_height[255],	/* Paper height */
-		pdf_widthxheight[255],	/* Paper width x height */
 		pstops_path[1024],	/* Path to pstops program */
 		*pstops_argv[7],	/* Arguments for pstops filter */
 		*pstops_options,	/* Options for pstops filter */
-		*pstops_end;		/* End of pstops filter option */
+		*pstops_end,		/* End of pstops filter option */
+		*ptr;			/* Pointer into value */
   const char	*cups_serverbin;	/* CUPS_SERVERBIN environment variable */
+  int		duplex, tumble;         /* Duplex settings for PPD-less
+					   printing */
 #if defined(HAVE_SIGACTION) && !defined(HAVE_SIGSET)
   struct sigaction action;		/* Actions for POSIX signals */
 #endif /* HAVE_SIGACTION && !HAVE_SIGSET */
@@ -360,17 +386,41 @@ main(int  argc,				/* I - Number of command-line args */
   parsePDFTOPDFComment(filename);
 
  /*
+  * Read out the options from the fifth command line argument
+  */
+
+  num_options = cupsParseOptions(argv[5], 0, &options);
+
+ /*
   * Load the PPD file and mark options...
   */
 
-  ppd         = ppdOpenFile(getenv("PPD"));
-  num_options = cupsParseOptions(argv[5], 0, &options);
+  ppd = ppdOpenFile(getenv("PPD"));
+  if (ppd)
+  {
+    ppdMarkDefaults(ppd);
+    cupsMarkOptions(ppd, num_options, options);
+  }
 
-  ppdMarkDefaults(ppd);
-  cupsMarkOptions(ppd, num_options, options);
+  if ((val = cupsGetOption("make-and-model", num_options, options)) != NULL)
+  {
+    strncpy(make_model, val, sizeof(make_model));
+    for (ptr = make_model; *ptr; ptr ++)
+      if (*ptr == '-') *ptr = ' ';
+  }
+  else if (ppd)
+  {
+    snprintf(make_model, sizeof(make_model), "%s %s", ppd->manufacturer,
+	     ppd->product + 1);
+    make_model[strlen(make_model) - 1] = '\0';
+  }
+  fprintf(stderr, "DEBUG: Printer make and model: %s\n", make_model);
 
  /*
-  * Select the PDF renderer: Ghostscript (gs) or Poppler (pdftops)
+  * Select the PDF renderer: Ghostscript (gs), Poppler (pdftops),
+  * Adobe Reader (arcoread), Poppler with Cairo (pdftocairo), or
+  * Hybrid (hybrid, Poppler for Brother, Minolta, Konica Minolta, Dell, and
+  * old HP LaserJets and Ghostscript otherwise)
   */
 
   if ((val = cupsGetOption("pdftops-renderer", num_options, options)) != NULL)
@@ -383,9 +433,53 @@ main(int  argc,				/* I - Number of command-line args */
       renderer = ACROREAD;
     else if (strcasecmp(val, "pdftocairo") == 0)
       renderer = PDFTOCAIRO;
+    else if (strcasecmp(val, "hybrid") == 0)
+      renderer = HYBRID;
     else
       fprintf(stderr,
 	      "WARNING: Invalid value for \"pdftops-renderer\": \"%s\"\n", val);
+  }
+
+  if (renderer == HYBRID)
+  {
+    if (make_model[0] &&
+	(!strncasecmp(make_model, "Brother", 7) ||
+	 !strncasecmp(make_model, "Dell", 4) ||
+	 strcasestr(make_model, "Minolta") ||
+	 (!strncasecmp(make_model, "Apple", 5) &&
+	  (ptr = strcasestr(make_model, "LaserWriter")) &&
+	  (ptr = strcasestr(ptr + 11, "12")) &&
+	  (ptr = strcasestr(ptr + 2, "640")))))
+    {
+      fprintf(stderr, "DEBUG: Switching to Poppler's pdftops instead of Ghostscript for Brother, Minolta, Konica Minolta, Dell, and Apple LaserWriter 12/640 to work around bugs in the printer's PS interpreters\n");
+      renderer = PDFTOPS;
+    }
+    else
+      renderer = GS;
+   /*
+    * Use Poppler instead of Ghostscript for old HP LaserJet printers due to
+    * a bug in their PS interpreters. They are very slow with Ghostscript.
+    * A LaserJet is considered old if its model number does not have a letter
+    * in the beginning, like LaserJet 3 or LaserJet 4000, not LaserJet P2015.
+    * See https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=742765
+    */
+    if (make_model[0] &&
+	((!strncasecmp(make_model, "HP", 2) ||
+	  !strncasecmp(make_model, "Hewlett-Packard", 15) ||
+	  !strncasecmp(make_model, "Hewlett Packard", 15)) &&
+	 (ptr = strcasestr(make_model, "LaserJet"))))
+    {
+      for (ptr += 8; *ptr; ptr ++)
+      {
+	if (isspace(*ptr)) continue;
+	if (isdigit(*ptr))
+	{
+	  fprintf(stderr, "DEBUG: Switching to Poppler's pdftops instead of Ghostscript for old HP LaserJet (\"LaserJet <number>\", no letters before <number>) printers to work around bugs in the printer's PS interpreters\n");
+	  renderer = PDFTOPS;
+	}
+	break;
+      }
+    }
   }
 
  /*
@@ -434,8 +528,11 @@ main(int  argc,				/* I - Number of command-line args */
   pstops_argv[5] = pstops_options;	/* Options */
   pstops_argv[6] = NULL;
 
+  log_command_line("pstops", pstops_argv);
+
  /*
-  * Build the command-line for the pdftops or gs filter...
+  * Build the command-line for the pdftops, gs, pdftocairo, or
+  * acroread filter...
   */
 
   if (renderer == PDFTOPS)
@@ -471,12 +568,12 @@ main(int  argc,				/* I - Number of command-line args */
     pdf_argc    = 2;
   }
 
+ /*
+  * Set language level and TrueType font handling...
+  */
+
   if (ppd)
   {
-   /*
-    * Set language level and TrueType font handling...
-    */
-
     if (ppd->language_level == 1)
     {
       if (renderer == PDFTOPS)
@@ -510,10 +607,11 @@ main(int  argc,				/* I - Number of command-line args */
       {
         /* Do not emit PS Level 3 with Poppler on HP PostScript laser printers
 	   as some do not like it. See https://bugs.launchpad.net/bugs/277404.*/
-	if (ppd->manufacturer &&
-	    (!strncasecmp(ppd->manufacturer, "HP", 2) ||
-	     !strncasecmp(ppd->manufacturer, "Hewlett-Packard", 15)) &&
-	    (strcasestr(ppd->nickname, "laserjet")))
+	if (!make_model[0] ||
+	    ((!strncasecmp(make_model, "HP", 2) ||
+	      !strncasecmp(make_model, "Hewlett-Packard", 15) ||
+	      !strncasecmp(make_model, "Hewlett Packard", 15)) &&
+	     (strcasestr(make_model, "LaserJet"))))
 	  pdf_argv[pdf_argc++] = (char *)"-level2";
 	else
 	  pdf_argv[pdf_argc++] = (char *)"-level3";
@@ -523,130 +621,58 @@ main(int  argc,				/* I - Number of command-line args */
       else /* PDFTOCAIRO || ACROREAD */
         pdf_argv[pdf_argc++] = (char *)"-level3";
     }
-
-    if ((val = cupsGetOption("fitplot", num_options, options)) == NULL)
-      val = cupsGetOption("fit-to-page", num_options, options);
-
-    if (val && strcasecmp(val, "no") && strcasecmp(val, "off") &&
-	strcasecmp(val, "false"))
-      fit = 1;
-    else
-      fit = 0;
-
-   /*
-    * Set output page size...
-    */
-
-    size = ppdPageSize(ppd, NULL);
-    if (size && fit)
+  }
+  else
+  {
+    if (renderer == PDFTOPS)
     {
-     /*
-      * Got the size, now get the orientation...
-      */
-
-      orientation = 0;
-
-      if ((val = cupsGetOption("landscape", num_options, options)) != NULL)
-      {
-	if (strcasecmp(val, "no") != 0 && strcasecmp(val, "off") != 0 &&
-	    strcasecmp(val, "false") != 0)
-	  orientation = 1;
-      }
-      else if ((val = cupsGetOption("orientation-requested", num_options,
-                                    options)) != NULL)
-      {
-       /*
-	* Map IPP orientation values to 0 to 3:
-	*
-	*   3 = 0 degrees   = 0
-	*   4 = 90 degrees  = 1
-	*   5 = -90 degrees = 3
-	*   6 = 180 degrees = 2
-	*/
-
-	orientation = atoi(val) - 3;
-	if (orientation >= 2)
-	  orientation ^= 1;
-      }
-
-      if ((renderer == PDFTOPS) || (renderer == PDFTOCAIRO))
-      {
-	if (orientation & 1)
-	{
-	  snprintf(pdf_width, sizeof(pdf_width), "%.0f", size->length);
-	  snprintf(pdf_height, sizeof(pdf_height), "%.0f", size->width);
-	}
-	else
-	{
-	  snprintf(pdf_width, sizeof(pdf_width), "%.0f", size->width);
-	  snprintf(pdf_height, sizeof(pdf_height), "%.0f", size->length);
-	}
-
-	pdf_argv[pdf_argc++] = (char *)"-paperw";
-	pdf_argv[pdf_argc++] = pdf_width;
-	pdf_argv[pdf_argc++] = (char *)"-paperh";
-	pdf_argv[pdf_argc++] = pdf_height;
-	pdf_argv[pdf_argc++] = (char *)"-expand";
-
-      }
-      else if (renderer == GS)
-      {
-	if (orientation & 1)
-	{
-	  snprintf(pdf_width, sizeof(pdf_width), "-dDEVICEWIDTHPOINTS=%.0f",
-		   size->length);
-	  snprintf(pdf_height, sizeof(pdf_height), "-dDEVICEHEIGHTPOINTS=%.0f",
-		   size->width);
-	}
-	else
-	{
-	  snprintf(pdf_width, sizeof(pdf_width), "-dDEVICEWIDTHPOINTS=%.0f",
-		   size->width);
-	  snprintf(pdf_height, sizeof(pdf_height), "-dDEVICEHEIGHTPOINTS=%.0f",
-		   size->length);
-	}
-
-	pdf_argv[pdf_argc++] = pdf_width;
-	pdf_argv[pdf_argc++] = pdf_height;
-      }
+      /* Do not emit PS Level 3 with Poppler on HP PostScript laser printers
+	 as some do not like it. See https://bugs.launchpad.net/bugs/277404.*/
+      if (!make_model[0] ||
+	  ((!strncasecmp(make_model, "HP", 2) ||
+	    !strncasecmp(make_model, "Hewlett-Packard", 15) ||
+	    !strncasecmp(make_model, "Hewlett Packard", 15)) &&
+	   (strcasestr(make_model, "LaserJet"))))
+	pdf_argv[pdf_argc++] = (char *)"-level2";
       else
-      {
-        if (orientation & 1)
-          snprintf(pdf_widthxheight, sizeof(pdf_widthxheight), "%.0fx%.0f",
-                   size->length, size->width);
-        else
-          snprintf(pdf_widthxheight, sizeof(pdf_widthxheight), "%.0fx%.0f",
-                   size->width, size->length);
-
-        pdf_argv[pdf_argc++] = (char *)"-size";
-        pdf_argv[pdf_argc++] = pdf_widthxheight;
-      }
+	pdf_argv[pdf_argc++] = (char *)"-level3";
+      pdf_argv[pdf_argc++] = (char *)"-noembtt";
     }
+    else if (renderer == GS)
+      pdf_argv[pdf_argc++] = (char *)"-dLanguageLevel=3";
+    else /* PDFTOCAIRO || ACROREAD */
+      pdf_argv[pdf_argc++] = (char *)"-level3";
+  }
+
 #ifdef HAVE_POPPLER_PDFTOPS_WITH_ORIGPAGESIZES
-    else if ((renderer == PDFTOPS) || (renderer == PDFTOCAIRO))
-    {
-     /*
-      *  Use the page sizes of the original PDF document, this way documents
-      *  which contain pages of different sizes can be printed correctly
-      */
-
-      pdf_argv[pdf_argc++] = (char *)"-origpagesizes";
-    }
-#endif /* HAVE_POPPLER_PDFTOPS_WITH_ORIGPAGESIZES */
-    else if (renderer == ACROREAD)
-    {
-     /*
-      * Use the page sizes of the original PDF document, this way documents
-      * which contain pages of different sizes can be printed correctly
-      */
-     
-      pdf_argv[pdf_argc++] = (char *)"-choosePaperByPDFPageSize";
-    }
-
+  if ((renderer == PDFTOPS) || (renderer == PDFTOCAIRO))
+  {
    /*
-    * Set output resolution ...
+    *  Use the page sizes of the original PDF document, this way documents
+    *  which contain pages of different sizes can be printed correctly
     */
 
+    pdf_argv[pdf_argc++] = (char *)"-origpagesizes";
+    pdf_argv[pdf_argc++] = (char *)"-nocenter";
+  }
+  else
+#endif /* HAVE_POPPLER_PDFTOPS_WITH_ORIGPAGESIZES */
+  if (renderer == ACROREAD)
+  {
+   /*
+    * Use the page sizes of the original PDF document, this way documents
+    * which contain pages of different sizes can be printed correctly
+    */
+
+    pdf_argv[pdf_argc++] = (char *)"-choosePaperByPDFPageSize";
+  }
+
+ /*
+  * Set output resolution ...
+  */
+
+  if (ppd)
+  {
     /* Ignore error exits of cupsRasterInterpretPPD(), if it found a resolution
        setting before erroring it is OK for us */
     cupsRasterInterpretPPD(&header, ppd, num_options, options, NULL);
@@ -654,23 +680,62 @@ main(int  argc,				/* I - Number of command-line args */
        method failed to find the printing resolution */
     if (header.HWResolution[0] > 100 && header.HWResolution[1] > 100)
     {
-	xres = header.HWResolution[0];
-	yres = header.HWResolution[1];
+      xres = header.HWResolution[0];
+      yres = header.HWResolution[1];
     }
     else if ((choice = ppdFindMarkedChoice(ppd, "Resolution")) != NULL)
       strncpy(resolution, choice->choice, sizeof(resolution));
     else if ((attr = ppdFindAttr(ppd,"DefaultResolution",NULL)) != NULL)
       strncpy(resolution, attr->value, sizeof(resolution));
+    resolution[sizeof(resolution)-1] = '\0';
+    if ((xres == 0) && (yres == 0) &&
+	((numvalues = sscanf(resolution, "%dx%d", &xres, &yres)) <= 0))
+      fprintf(stderr,
+	      "DEBUG: No resolution information found in the PPD file.\n");
   }
-
-  resolution[sizeof(resolution)-1] = '\0';
-  if ((xres > 0) || (yres > 0) ||
-      ((numvalues = sscanf(resolution, "%dx%d", &xres, &yres)) > 0))
+  if ((xres == 0) && (yres == 0))
   {
-    if ((yres > 0) && (xres > yres)) xres = yres;
+    if ((val = cupsGetOption("printer-resolution", num_options,
+			   options)) != NULL ||
+	(val = cupsGetOption("Resolution", num_options, options)) != NULL)
+    {
+      xres = yres = strtol(val, (char **)&ptr, 10);
+      if (ptr > val && xres > 0)
+      {
+	if (*ptr == 'x')
+	  yres = strtol(ptr + 1, (char **)&ptr, 10);
+      }
+
+      if (ptr <= val || xres <= 0 || yres <= 0 || !ptr ||
+	  (*ptr != '\0' &&
+	   strcasecmp(ptr, "dpi") &&
+	   strcasecmp(ptr, "dpc") &&
+	   strcasecmp(ptr, "dpcm")))
+      {
+	fprintf(stderr, "DEBUG: Bad resolution value \"%s\".\n", val);
+      }
+      else
+      {
+	if (!strcasecmp(ptr, "dpc") ||
+	    !strcasecmp(ptr, "dpcm"))
+	{
+	  xres = xres * 254 / 100;
+	  yres = yres * 254 / 100;
+	}
+      }
+    }
+  }
+  if ((xres > 0) || (yres > 0))
+  {
+    if (yres == 0) yres = xres;
+    if (xres == 0) xres = yres;
+    if (xres > yres)
+      res = yres;
+    else
+      res = xres;
   }
   else
-    xres = 300;
+    res = 300;
 
  /*
   * Get the ceiling for the image rendering resolution
@@ -678,8 +743,8 @@ main(int  argc,				/* I - Number of command-line args */
 
   if ((val = cupsGetOption("pdftops-max-image-resolution", num_options, options)) != NULL)
   {
-    if ((numvalues = sscanf(val, "%d", &yres)) > 0)
-      maxres = yres;
+    if ((numvalues = sscanf(val, "%d", &mres)) > 0)
+      maxres = mres;
     else
       fprintf(stderr,
 	      "WARNING: Invalid value for \"pdftops-max-image-resolution\": \"%s\"\n", val);
@@ -693,8 +758,8 @@ main(int  argc,				/* I - Number of command-line args */
   */
 
   if (maxres)
-    while (xres > maxres)
-      xres = xres / 2;
+    while (res > maxres)
+      res = res / 2;
 
   if ((renderer == PDFTOPS) || (renderer == PDFTOCAIRO))
   {
@@ -704,9 +769,9 @@ main(int  argc,				/* I - Number of command-line args */
     * resolution of embedded images does not match the printer's resolution
     */
     pdf_argv[pdf_argc++] = (char *)"-r";
-    snprintf(resolution, sizeof(resolution), "%d", xres);
+    snprintf(resolution, sizeof(resolution), "%d", res);
     pdf_argv[pdf_argc++] = resolution;
-    fprintf(stderr, "DEBUG: Using image rendering resolution %d dpi\n", xres);
+    fprintf(stderr, "DEBUG: Using image rendering resolution %d dpi\n", res);
 #endif /* HAVE_POPPLER_PDFTOPS_WITH_RESOLUTION */
     pdf_argv[pdf_argc++] = filename;
     pdf_argv[pdf_argc++] = (char *)"-";
@@ -717,24 +782,25 @@ main(int  argc,				/* I - Number of command-line args */
     * Set resolution to avoid slow processing by the printer when the
     * resolution of embedded images does not match the printer's resolution
     */
-    snprintf(resolution, 127, "-r%d", xres);
+    snprintf(resolution, 127, "-r%d", res);
     pdf_argv[pdf_argc++] = resolution;
-    fprintf(stderr, "DEBUG: Using image rendering resolution %d dpi\n", xres);
+    fprintf(stderr, "DEBUG: Using image rendering resolution %d dpi\n", res);
    /*
     * PostScript debug mode: If you send a job with "lpr -o psdebug" Ghostscript
     * will not compress the pages, so that the PostScript code can get
     * analysed. This is especially important if a PostScript printer errors or
     * misbehaves on Ghostscript's output.
-    * On Kyocera printers we always suppress page compression, to avoid slow
-    * processing of raster images.
+    * On Kyocera and Utax (uses Kyocera hard- and software) printers we always
+    * suppress page compression, to avoid slow processing of raster images.
     */
     val = cupsGetOption("psdebug", num_options, options);
     if ((val && strcasecmp(val, "no") && strcasecmp(val, "off") &&
 	 strcasecmp(val, "false")) ||
-	(ppd && ppd->manufacturer &&
-	 !strncasecmp(ppd->manufacturer, "Kyocera", 7)))
+	(make_model[0] &&
+	 (!strncasecmp(make_model, "Kyocera", 7) ||
+	  !strncasecmp(make_model, "Utax", 4))))
     {
-      fprintf(stderr, "DEBUG: Deactivated compression of pages in Ghostscript's PostScript output (\"psdebug\" debug mode or Kyocera printer)\n");
+      fprintf(stderr, "DEBUG: Deactivated compression of pages in Ghostscript's PostScript output (\"psdebug\" debug mode or Kyocera/Utax printer)\n");
       pdf_argv[pdf_argc++] = (char *)"-dCompressPages=false";
     }
    /*
@@ -745,14 +811,31 @@ main(int  argc,				/* I - Number of command-line args */
     */
     pdf_argv[pdf_argc++] = (char *)"-dCompressFonts=false";
     pdf_argv[pdf_argc++] = (char *)"-dNoT3CCITT";
-    if (ppd && ppd->manufacturer &&
-	!strncasecmp(ppd->manufacturer, "Brother", 7))
+    if (make_model[0] &&
+	!strncasecmp(make_model, "Brother", 7))
     {
       fprintf(stderr, "DEBUG: Deactivation of Ghostscript's image compression for Brother printers to workarounmd PS interpreter bug\n");
       pdf_argv[pdf_argc++] = (char *)"-dEncodeMonoImages=false";
       pdf_argv[pdf_argc++] = (char *)"-dEncodeColorImages=false";
     }
+   /*
+    * Toshiba's PS interpreters have an issue with how we handle
+    * TrueType/Type42 fonts, therefore we add command line options to turn
+    * the TTF outlines into bitmaps, usually Type 3 PostScript fonts, only
+    * large glyphs into normal image data.
+    * See https://bugs.launchpad.net/bugs/978120
+    */
+    if (make_model[0] &&
+	!strncasecmp(make_model, "Toshiba", 7))
+    {
+      fprintf(stderr, "DEBUG: To work around a bug in Toshiba's PS interpreters turn TTF font glyphs into bitmaps, usually Type 3 PS fonts, or images for large characters\n");
+      pdf_argv[pdf_argc++] = (char *)"-dHaveTrueTypes=false";
+    }
+    pdf_argv[pdf_argc++] = (char *)"-dNOINTERPOLATE";
     pdf_argv[pdf_argc++] = (char *)"-c";
+    if (make_model[0] &&
+	!strncasecmp(make_model, "Toshiba", 7))
+      pdf_argv[pdf_argc++] = (char *)"<< /MaxFontItem 500000 >> setuserparams";
     pdf_argv[pdf_argc++] = (char *)"save pop";
     pdf_argv[pdf_argc++] = (char *)"-f";
     pdf_argv[pdf_argc++] = filename;
@@ -761,19 +844,30 @@ main(int  argc,				/* I - Number of command-line args */
 
   pdf_argv[pdf_argc] = NULL;
 
+  log_command_line(NULL, pdf_argv);
+
  /*
   * Do we need post-processing of the PostScript output to work around bugs
   * of the printer's PostScript interpreter?
   */
 
-  if ((renderer == PDFTOPS) || (renderer == PDFTOPS))
+  if ((renderer == PDFTOPS) || (renderer == PDFTOCAIRO))
     need_post_proc = 0;
   else if (renderer == GS)
     need_post_proc =
-      (ppd && ppd->manufacturer &&
-       (!strncasecmp(ppd->manufacturer, "Kyocera", 7) ||
-	!strncasecmp(ppd->manufacturer, "Brother", 7)) ? 1 : 0);
+      (make_model[0] &&
+       (!strncasecmp(make_model, "Kyocera", 7) ||
+	!strncasecmp(make_model, "Utax", 4) ||
+	!strncasecmp(make_model, "Brother", 7)) ? 1 : 0);
   else
+    need_post_proc = 1;
+
+ /*
+  * Do we need post-processing of the PostScript output to apply option
+  * settings when doing PPD-less printing?
+  */
+
+  if (!ppd)
     need_post_proc = 1;
 
  /*
@@ -818,17 +912,17 @@ main(int  argc,				/* I - Number of command-line args */
 
     if (renderer == PDFTOPS)
     {
-      execv(CUPS_POPPLER_PDFTOPS, pdf_argv);
+      execvp(CUPS_POPPLER_PDFTOPS, pdf_argv);
       perror("DEBUG: Unable to execute pdftops program");
     }
     else if (renderer == GS)
     {
-      execv(CUPS_GHOSTSCRIPT, pdf_argv);
+      execvp(CUPS_GHOSTSCRIPT, pdf_argv);
       perror("DEBUG: Unable to execute gs program");
     }
     else if (renderer == PDFTOCAIRO)
     {
-      execv(CUPS_POPPLER_PDFTOCAIRO, pdf_argv);
+      execvp(CUPS_POPPLER_PDFTOCAIRO, pdf_argv);
       perror("DEBUG: Unable to execute pdftocairo program");
     }
     else
@@ -843,7 +937,7 @@ main(int  argc,				/* I - Number of command-line args */
         close(fd);
       }
      
-      execv(CUPS_ACROREAD, pdf_argv);
+      execvp(CUPS_ACROREAD, pdf_argv);
       perror("DEBUG: Unable to execute acroread program");
     }
 
@@ -939,16 +1033,16 @@ main(int  argc,				/* I - Number of command-line args */
 	  else
 	    printf("%s", buffer);
 
-	  if (renderer == GS && ppd && ppd->manufacturer)
+	  if (renderer == GS && make_model[0])
 	  {
 
 	   /*
-	    * Kyocera printers have a bug in their PostScript interpreter
-	    * making them crashing on PostScript input data generated by
-	    * Ghostscript's "ps2write" output device.
+	    * Kyocera (and Utax) printers have a bug in their PostScript
+	    * interpreter making them crashing on PostScript input data
+	    * generated by Ghostscript's "ps2write" output device.
 	    *
-	    * The problem can be simply worked around by preceding the PostScript
-	    * code with some extra bits.
+	    * The problem can be simply worked around by preceding the
+	    * PostScript code with some extra bits.
 	    *
 	    * See https://bugs.launchpad.net/bugs/951627
 	    *
@@ -959,14 +1053,15 @@ main(int  argc,				/* I - Number of command-line args */
 	    * See https://bugs.launchpad.net/bugs/1026974
 	    */
 
-	    if (!strncasecmp(ppd->manufacturer, "Kyocera", 7))
+	    if (!strncasecmp(make_model, "Kyocera", 7) ||
+		!strncasecmp(make_model, "Utax", 4))
 	    {
-	      fprintf(stderr, "DEBUG: Inserted workaround PostScript code for Kyocera printers\n");
+	      fprintf(stderr, "DEBUG: Inserted workaround PostScript code for Kyocera and Utax printers\n");
 	      puts("% ===== Workaround insertion by pdftops CUPS filter =====");
-	      puts("% Kyocera's PostScript interpreter crashes on early name binding,");
-	      puts("% so eliminate all \"bind\"s by redifining \"bind\" to no-op");
+	      puts("% Kyocera's/Utax's PostScript interpreter crashes on early name binding,");
+	      puts("% so eliminate all \"bind\"s by redefining \"bind\" to no-op");
 	      puts("/bind {} bind def");
-	      puts("% Some Kyocera printers have an unacceptably slow implementation");
+	      puts("% Some Kyocera and Utax printers have an unacceptably slow implementation");
 	      puts("% of image interpolation.");
 	      puts("/image");
 	      puts("{");
@@ -990,7 +1085,7 @@ main(int  argc,				/* I - Number of command-line args */
 	    * See https://bugs.launchpad.net/bugs/950713
 	    */
 
-	    else if (!strncasecmp(ppd->manufacturer, "Brother", 7))
+	    else if (!strncasecmp(make_model, "Brother", 7))
 	    {
 	      fprintf(stderr, "DEBUG: Inserted workaround PostScript code for Brother printers\n");
 	      puts("% ===== Workaround insertion by pdftops CUPS filter =====");
@@ -1010,6 +1105,169 @@ main(int  argc,				/* I - Number of command-line args */
 	    if (strncmp(buffer, "%%EndProlog", 11))
 	      puts("%%EndProlog");
 	    printf("%s", buffer);
+	  }
+
+	  if (!ppd)
+	  {
+	   /*
+	    * Copy everything until the setup section
+	    */
+	    while (bytes > 0 &&
+		   strncmp(buffer, "%%BeginSetup", 12) &&
+		   strncmp(buffer, "%%EndSetup", 10) &&
+		   strncmp(buffer, "%%Page:", 7))
+	    {
+	      bytes = cupsFileGetLine(fp, buffer, sizeof(buffer));
+	      if (strncmp(buffer, "%%Page:", 7) &&
+		  strncmp(buffer, "%%EndSetup", 10))
+		printf("%s", buffer);
+	    }
+	  
+	    if (bytes > 0)
+	    {
+	     /*
+	      * Insert option PostScript code in Setup section
+	      */
+	      if (strncmp(buffer, "%%BeginSetup", 12))
+	      {
+		/* No Setup section, create one */
+		fprintf(stderr, "DEBUG: Adding Setup section for option PostScript code\n");
+		puts("%%BeginSetup");
+	      }
+
+	     /*
+	      * Duplex
+	      */
+	      duplex = 0;
+	      tumble = 0;
+	      if ((val = cupsGetOption("sides", num_options, options)) != NULL ||
+		  (val = cupsGetOption("Duplex", num_options, options)) != NULL)
+	      {
+		if (!strcasecmp(val, "On") ||
+			 !strcasecmp(val, "True") || !strcasecmp(val, "Yes") ||
+			 !strncasecmp(val, "two-sided", 9) ||
+			 !strncasecmp(val, "TwoSided", 8) ||
+			 !strncasecmp(val, "Duplex", 6))
+		{
+		  duplex = 1;
+		  if (!strncasecmp(val, "DuplexTumble", 12))
+		    tumble = 1;
+		}
+	      }
+
+	      if ((val = cupsGetOption("sides", num_options, options)) != NULL ||
+		  (val = cupsGetOption("Tumble", num_options, options)) != NULL)
+	      {
+		if (!strcasecmp(val, "None") || !strcasecmp(val, "Off") ||
+		    !strcasecmp(val, "False") || !strcasecmp(val, "No") ||
+		    !strcasecmp(val, "one-sided") || !strcasecmp(val, "OneSided") ||
+		    !strcasecmp(val, "two-sided-long-edge") ||
+		    !strcasecmp(val, "TwoSidedLongEdge") ||
+		    !strcasecmp(val, "DuplexNoTumble"))
+		  tumble = 0;
+		else if (!strcasecmp(val, "On") ||
+			 !strcasecmp(val, "True") || !strcasecmp(val, "Yes") ||
+			 !strcasecmp(val, "two-sided-short-edge") ||
+			 !strcasecmp(val, "TwoSidedShortEdge") ||
+			 !strcasecmp(val, "DuplexTumble"))
+		  tumble = 1;
+	      }
+
+	      if (duplex)
+	      {
+		if (tumble)
+		  puts("<</Duplex true /Tumble true>> setpagedevice");
+		else
+		  puts("<</Duplex true /Tumble false>> setpagedevice");
+	      }
+	      else
+		puts("<</Duplex false>> setpagedevice");
+
+	     /*
+	      * Resolution
+	      */
+	      if ((xres > 0) && (yres > 0))
+		printf("<</HWResolution[%d %d]>> setpagedevice\n", xres, yres);
+
+	     /*
+	      * InputSlot/MediaSource
+	      */
+	      if ((val = cupsGetOption("media-position", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("MediaPosition", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("media-source", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("MediaSource", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("InputSlot", num_options,
+				       options)) != NULL)
+	      {
+		if (!strncasecmp(val, "Auto", 4) ||
+		    !strncasecmp(val, "Default", 7))
+		  puts("<</ManualFeed false /MediaPosition 7>> setpagedevice");
+		else if (!strcasecmp(val, "Main"))
+		  puts("<</MediaPosition 0 /ManualFeed false>> setpagedevice");
+		else if (!strcasecmp(val, "Alternate"))
+		  puts("<</MediaPosition 1 /ManualFeed false>> setpagedevice");
+		else if (!strcasecmp(val, "Manual"))
+		  puts("<</MediaPosition 3 /ManualFeed true>> setpagedevice");
+		else if (!strcasecmp(val, "Top"))
+		  puts("<</MediaPosition 0 /ManualFeed false>> setpagedevice");
+		else if (!strcasecmp(val, "Bottom"))
+		  puts("<</MediaPosition 1 /ManualFeed false>> setpagedevice");
+		else if (!strcasecmp(val, "ByPassTray"))
+		  puts("<</MediaPosition 3 /ManualFeed false>> setpagedevice");
+		else if (!strcasecmp(val, "Tray1"))
+		  puts("<</MediaPosition 3 /ManualFeed false>> setpagedevice");
+		else if (!strcasecmp(val, "Tray2"))
+		  puts("<</MediaPosition 0 /ManualFeed false>> setpagedevice");
+		else if (!strcasecmp(val, "Tray3"))
+		  puts("<</MediaPosition 1 /ManualFeed false>> setpagedevice");
+	      }
+
+	     /*
+	      * ColorModel
+	      */
+	      if ((val = cupsGetOption("pwg-raster-document-type", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("PwgRasterDocumentType", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("print-color-mode", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("PrintColorMode", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("color-space", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("ColorSpace", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("color-model", num_options,
+				       options)) != NULL ||
+		  (val = cupsGetOption("ColorModel", num_options,
+				       options)) != NULL)
+	      {
+		if (!strncasecmp(val, "Black", 5))
+		  puts("<</ProcessColorModel /DeviceGray>> setpagedevice");
+		else if (!strncasecmp(val, "Cmyk", 4))
+		  puts("<</ProcessColorModel /DeviceCMYK>> setpagedevice");
+		else if (!strncasecmp(val, "Cmy", 3))
+		  puts("<</ProcessColorModel /DeviceCMY>> setpagedevice");
+		else if (!strncasecmp(val, "Rgb", 3))
+		  puts("<</ProcessColorModel /DeviceRGB>> setpagedevice");
+		else if (!strncasecmp(val, "Gray", 4))
+		  puts("<</ProcessColorModel /DeviceGray>> setpagedevice");
+		else if (!strncasecmp(val, "Color", 5))
+		  puts("<</ProcessColorModel /DeviceRGB>> setpagedevice");
+	      }
+
+	      if (strncmp(buffer, "%%BeginSetup", 12))
+	      {
+		/* Close newly created Setup section */
+		if (strncmp(buffer, "%%EndSetup", 10))
+		  puts("%%EndSetup");
+		printf("%s", buffer);
+	      }
+	    }
 	  }
 
 	 /*
@@ -1185,7 +1443,3 @@ cancel_job(int sig)			/* I - Signal number (unused) */
   job_canceled = 1;
 }
 
-
-/*
- * End of "$Id$".
- */

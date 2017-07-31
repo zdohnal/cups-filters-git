@@ -1,6 +1,4 @@
 /*
- * "$Id$"
- *
  *   Common text filter routines for CUPS.
  *
  *   Copyright 2007-2011 by Apple Inc.
@@ -8,11 +6,8 @@
  *
  *   These coded instructions, statements, and computer programs are the
  *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
- *
- *   This file is subject to the Apple OS-Developed Software exception.
+ *   law.  Distribution and use rights are outlined in the file "COPYING"
+ *   which should have been included with this file.
  *
  * Contents:
  *
@@ -26,6 +21,7 @@
  */
 
 #include "textcommon.h"
+#include <limits.h>
 
 
 /*
@@ -545,6 +541,8 @@ TextMain(const char *name,	/* I - Name of filter */
   options     = NULL;
   num_options = cupsParseOptions(argv[5], 0, &options);
 
+  ppd = SetCommonOptions(num_options, options, 1);
+
   if ((val = cupsGetOption("prettyprint", num_options, options)) != NULL &&
       strcasecmp(val, "no") && strcasecmp(val, "off") &&
       strcasecmp(val, "false"))
@@ -594,8 +592,6 @@ TextMain(const char *name,	/* I - Name of filter */
     }
   }
 
-  ppd = SetCommonOptions(num_options, options, 1);
-
   if ((val = cupsGetOption("wrap", num_options, options)) == NULL)
     WrapLines = 1;
   else
@@ -643,6 +639,45 @@ TextMain(const char *name,	/* I - Name of filter */
 
   if (PrettyPrint)
     PageTop -= 216.0f / LinesPerInch;
+
+ /*
+  * Allocate memory for the page...
+  */
+
+  SizeColumns = (PageRight - PageLeft) / 72.0 * CharsPerInch;
+  SizeLines   = (PageTop - PageBottom) / 72.0 * LinesPerInch;
+
+ /*
+  * Enforce minimum size...
+  */
+  if (SizeColumns < 1)
+    SizeColumns = 1;
+  if (SizeLines < 1)
+    SizeLines = 1;
+
+  if (SizeLines >= INT_MAX / SizeColumns / sizeof(lchar_t))
+  {
+    fprintf(stderr, "ERROR: bad page size\n");
+    exit(1);
+  }
+
+  Page    = calloc(sizeof(lchar_t *), SizeLines);
+  if (!Page)
+  {
+    fprintf(stderr, "ERROR: cannot allocate memory for page\n");
+    exit(1);
+  }
+
+  Page[0] = calloc(sizeof(lchar_t), SizeColumns * SizeLines);
+  if (!Page[0])
+  {
+    free(Page);
+    fprintf(stderr, "ERROR: cannot allocate memory for page\n");
+    exit(1);
+  }
+
+  for (i = 1; i < SizeLines; i ++)
+    Page[i] = Page[0] + i * SizeColumns;
 
   Copies = atoi(argv[4]);
 
@@ -1122,6 +1157,8 @@ TextMain(const char *name,	/* I - Name of filter */
   if (ppd != NULL)
     ppdClose(ppd);
 
+  free(Page[0]);
+  free(Page);
   return (0);
 }
 
@@ -1212,7 +1249,3 @@ getutf8(FILE *fp)	/* I - File to read from */
   }
 }
 
-
-/*
- * End of "$Id$".
- */

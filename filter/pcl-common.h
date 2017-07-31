@@ -1,6 +1,4 @@
 /*
- * "$Id$"
- *
  *   Common HP-PCL definitions for CUPS.
  *
  *   Copyright 2007-2011 by Apple Inc.
@@ -8,9 +6,8 @@
  *
  *   These coded instructions, statements, and computer programs are the
  *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
+ *   law.  Distribution and use rights are outlined in the file "COPYING"
+ *   which should have been included with this file.
  */
 
 /*
@@ -62,11 +59,8 @@
 	printf("@PJL ENTER LANGUAGE=%s\r\n", (lang))
 
 extern void	pcl_set_media_size(ppd_file_t *ppd, float width, float length);
-extern void	pjl_write(ppd_file_t *ppd, const char *format,
+extern void	pjl_write(const char *format,
 		          const char *value, int job_id,
                 	  const char *user, const char *title,
 			  int num_options, cups_option_t *options);
 
-/*
- * End of "$Id$".
- */

@@ -1,6 +1,4 @@
 /*
- * "$Id$"
- *
  *   Image file to raster filter for CUPS.
  *
  *   Copyright 2007-2011 by Apple Inc.
@@ -8,11 +6,8 @@
  *
  *   These coded instructions, statements, and computer programs are the
  *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
- *
- *   This file is subject to the Apple OS-Developed Software exception.
+ *   law.  Distribution and use rights are outlined in the file "COPYING"
+ *   which should have been included with this file.
  *
  * Contents:
  *
@@ -36,6 +31,8 @@
  */
 
 #include "common.h"
+#include <cupsfilters/raster.h>
+#include <cupsfilters/colormanager.h>
 #include <cupsfilters/image-private.h>
 #include <unistd.h>
 #include <math.h>
@@ -191,6 +188,11 @@ main(int  argc,				/* I - Number of command-line arguments */
   int			plane,		/* Current color plane */
 			num_planes;	/* Number of color planes */
   char			filename[1024];	/* Name of file to print */
+  cm_calibration_t      cm_calibrate;   /* Are we color calibrating the device? */
+  int                   cm_disabled;    /* Color management disabled? */
+#ifdef HAVE_CUPS_1_7
+  int                   pwgraster;
+#endif /* HAVE_CUPS_1_7 */
 
 
  /*
@@ -478,6 +480,21 @@ main(int  argc,				/* I - Number of command-line arguments */
     return (1);
   }
 
+#ifdef HAVE_CUPS_1_7
+ /*
+  * Check whether we need PWG Raster output
+  */
+  pwgraster = 0;
+  if ((attr = ppdFindAttr(ppd,"PWGRaster",0)) != 0 &&
+      (!strcasecmp(attr->value, "true")
+       || !strcasecmp(attr->value, "on") ||
+       !strcasecmp(attr->value, "yes")))
+  {
+    pwgraster = 1;
+    cupsRasterParseIPPOptions(&header, num_options, options, pwgraster, 0);
+  }
+#endif /* HAVE_CUPS_1_7 */
+
  /*
   * Get the media type and resolution that have been chosen...
   */
@@ -491,6 +508,14 @@ main(int  argc,				/* I - Number of command-line arguments */
     resolution = choice->choice;
   else
     resolution = "";
+
+  /* support the "cm-calibration" option */
+  cm_calibrate = cmGetCupsColorCalibrateMode(options, num_options);
+
+  if (cm_calibrate == CM_CALIBRATION_ENABLED)
+    cm_disabled = 1;
+  else
+    cm_disabled = cmIsPrinterCmDisabled(getenv("PRINTER"));
 
  /*
   * Choose the appropriate colorspace...
@@ -603,8 +628,9 @@ main(int  argc,				/* I - Number of command-line arguments */
  /*
   * Find a color profile matching the current options...
   */
-
-  if ((val = cupsGetOption("profile", num_options, options)) != NULL)
+   
+  if ((val = cupsGetOption("profile", num_options, options)) != NULL &&
+      !cm_disabled)
   {
     profile = &userprofile;
     sscanf(val, "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
@@ -628,7 +654,7 @@ main(int  argc,				/* I - Number of command-line arguments */
     userprofile.matrix[2][1] *= 0.001f;
     userprofile.matrix[2][2] *= 0.001f;
   }
-  else if (ppd != NULL)
+  else if (ppd != NULL && !cm_disabled)
   {
     fprintf(stderr, "DEBUG: Searching for profile \"%s/%s\"...\n",
             resolution, media_type);
@@ -4368,7 +4394,3 @@ raster_cb(
   return (0);
 }
 
-
-/*
- * End of "$Id$".
- */

@@ -1,6 +1,4 @@
 /*
- * "$Id$"
- *
  *   Common filter routines for CUPS.
  *
  *   Copyright 2007-2011 by Apple Inc.
@@ -8,11 +6,8 @@
  *
  *   These coded instructions, statements, and computer programs are the
  *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
- *
- *   This file is subject to the Apple OS-Developed Software exception.
+ *   law.  Distribution and use rights are outlined in the file "COPYING"
+ *   which should have been included with this file.
  *
  * Contents:
  *
@@ -76,15 +71,121 @@ SetCommonOptions(
 
   if ((pagesize = ppdPageSize(ppd, NULL)) != NULL)
   {
-    PageWidth  = pagesize->width;
-    PageLength = pagesize->length;
-    PageTop    = pagesize->top;
-    PageBottom = pagesize->bottom;
-    PageLeft   = pagesize->left;
-    PageRight  = pagesize->right;
+    int corrected = 0;
+    if (pagesize->width > 0) 
+      PageWidth = pagesize->width;
+    else
+    {
+      fprintf(stderr, "ERROR: Invalid value for page width: %.0f\n",
+	      pagesize->width);
+      corrected = 1;
+    }
+    if (pagesize->length > 0) 
+      PageLength = pagesize->length;
+    else
+    {
+      fprintf(stderr, "ERROR: Invalid value for page length: %.0f\n",
+	      pagesize->length);
+      corrected = 1;
+    }
+    if (pagesize->top >= 0 && pagesize->top <= PageLength) 
+      PageTop = pagesize->top;
+    else
+    {
+      fprintf(stderr, "ERROR: Invalid value for page top margin: %.0f\n",
+	      pagesize->top);
+      if (PageLength >= PageBottom)
+	PageTop = PageLength - PageBottom;
+      else
+	PageTop = PageLength;
+      corrected = 1;
+    }
+    if (pagesize->bottom >= 0 && pagesize->bottom <= PageLength) 
+      PageBottom = pagesize->bottom;
+    else
+    {
+      fprintf(stderr, "ERROR: Invalid value for page bottom margin: %.0f\n",
+	      pagesize->bottom);
+      if (PageLength <= PageBottom)
+	PageBottom = 0.0f;
+      corrected = 1;
+    }
+    if (PageBottom == PageTop)
+    {
+      fprintf(stderr, "ERROR: Invalid values for page margins: Bottom: %.0f; Top: %.0f\n",
+	      PageBottom, PageTop);
+      PageTop = PageLength - PageBottom;
+      if (PageBottom == PageTop)
+      {
+	PageBottom = 0.0f;
+	PageTop = PageLength;
+      }
+      corrected = 1;
+    }
+    if (PageBottom > PageTop)
+    {
+      fprintf(stderr, "ERROR: Invalid values for page margins: Bottom: %.0f; Top: %.0f\n",
+	      PageBottom, PageTop);
+      float swap = PageBottom;
+      PageBottom = PageTop;
+      PageTop = swap;
+      corrected = 1;
+    }
 
-    fprintf(stderr, "DEBUG: Page = %.0fx%.0f; %.0f,%.0f to %.0f,%.0f\n",
-            PageWidth, PageLength, PageLeft, PageBottom, PageRight, PageTop);
+    if (pagesize->left >= 0 && pagesize->left <= PageWidth) 
+      PageLeft = pagesize->left;
+    else
+    {
+      fprintf(stderr, "ERROR: Invalid value for page left margin: %.0f\n",
+	      pagesize->left);
+      if (PageWidth <= PageLeft)
+	PageLeft = 0.0f;
+      corrected = 1;
+    }
+    if (pagesize->right >= 0 && pagesize->right <= PageWidth) 
+      PageRight = pagesize->right;
+    else
+    {
+      fprintf(stderr, "ERROR: Invalid value for page right margin: %.0f\n",
+	      pagesize->right);
+      if (PageWidth >= PageLeft)
+	PageRight = PageWidth - PageLeft;
+      else
+	PageRight = PageWidth;
+      corrected = 1;
+    }
+    if (PageLeft == PageRight)
+    {
+      fprintf(stderr, "ERROR: Invalid values for page margins: Left: %.0f; Right: %.0f\n",
+	      PageLeft, PageRight);
+      PageRight = PageWidth - PageLeft;
+      if (PageLeft == PageRight)
+      {
+	PageLeft = 0.0f;
+	PageRight = PageWidth;
+      }
+      corrected = 1;
+    }
+    if (PageLeft > PageRight)
+    {
+      fprintf(stderr, "ERROR: Invalid values for page margins: Left: %.0f; Right: %.0f\n",
+	      PageLeft, PageRight);
+      float swap = PageLeft;
+      PageLeft = PageRight;
+      PageRight = swap;
+      corrected = 1;
+    }
+
+    if (corrected)
+    {
+      fprintf(stderr, "ERROR: PPD Page = %.0fx%.0f; %.0f,%.0f to %.0f,%.0f\n",
+	      pagesize->width, pagesize->length, pagesize->left, pagesize->bottom, pagesize->right, pagesize->top);
+      fprintf(stderr, "ERROR: Corrected Page = %.0fx%.0f; %.0f,%.0f to %.0f,%.0f\n",
+	      PageWidth, PageLength, PageLeft, PageBottom, PageRight, PageTop);
+    }
+    else
+      fprintf(stderr, "DEBUG: Page = %.0fx%.0f; %.0f,%.0f to %.0f,%.0f\n",
+	      pagesize->width, pagesize->length, pagesize->left, pagesize->bottom, pagesize->right, pagesize->top);
   }
 
   if (ppd != NULL)
@@ -529,7 +630,3 @@ WriteTextComment(const char *name,	/* I - Comment name ("Title", etc.) */
   puts(")");
 }
 
-
-/*
- * End of "$Id$".
- */

@@ -1,16 +1,14 @@
 #
-# "$Id: $"
-#
 #   MIME conversions file for OpenPrinting CUPS Filters.
 #
 #   Copyright 2007-2011 by Apple Inc.
 #   Copyright 1997-2007 by Easy Software Products.
+#   Copyright 2012-2016 by Till Kamppeter.
 #
 #   These coded instructions, statements, and computer programs are the
 #   property of Apple Inc. and are protected by Federal copyright
-#   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
-#   which should have been included with this file.  If this file is
-#   file is missing or damaged, see the license at "http://www.cups.org/".
+#   law.  Distribution and use rights are outlined in the file "COPYING"
+#   which should have been included with this file.
 #
 
 ########################################################################
@@ -36,38 +34,39 @@
 
 # CUPS file conversion rules for PostScript input when we are working with
 # the PDF printing workflow. General PostScript input should be converted to
-# PDF, so that pdftopdf is doing the page management on PDF data and the
+# PDF (see cupsfilters-ghostscript.convs as this is done by Ghostscript), so
+# that pdftopdf is doing the page management on PDF data and the
 # renderer/driver part renders PDF. An exception is made for PostScript
 # coming from the Adobe Reader. As this PostScript cannot be converted to PDF
 # if it comes from an encrypted PDF file, we simply override pstopdf and the
 # PDF workflow.
 
-application/postscript		application/pdf			100	pstopdf
 application/vnd.adobe-reader-postscript	application/vnd.cups-postscript	66	pstops
 
 application/pdf		application/vnd.cups-pdf		66	pdftopdf
-application/x-cshell	application/pdf				0	texttopdf
-application/x-csource	application/pdf				0	texttopdf
-application/x-perl	application/pdf				0	texttopdf
-application/x-shell	application/pdf				0	texttopdf
-text/plain		application/pdf				0	texttopdf
-text/html		application/pdf				0	texttopdf
-image/gif		application/vnd.cups-pdf		33	imagetopdf
-image/png		application/vnd.cups-pdf		33	imagetopdf
-image/jpeg		application/vnd.cups-pdf		33	imagetopdf
-image/tiff		application/vnd.cups-pdf		33	imagetopdf
-image/x-bitmap		application/vnd.cups-pdf		33	imagetopdf
-image/x-photocd		application/vnd.cups-pdf		33	imagetopdf
-image/x-portable-anymap	application/vnd.cups-pdf		33	imagetopdf
-image/x-portable-bitmap	application/vnd.cups-pdf		33	imagetopdf
-image/x-portable-graymap application/vnd.cups-pdf		33	imagetopdf
-image/x-portable-pixmap	application/vnd.cups-pdf		33	imagetopdf
-image/x-sgi-rgb		application/vnd.cups-pdf		33	imagetopdf
-image/x-xbitmap		application/vnd.cups-pdf		33	imagetopdf
-image/x-xpixmap		application/vnd.cups-pdf		33	imagetopdf
-image/x-xwindowdump	application/vnd.cups-pdf		33	imagetopdf
-image/x-sun-raster	application/vnd.cups-pdf		33	imagetopdf
-application/vnd.cups-pdf-banner	application/pdf			33	bannertopdf
+application/x-cshell	application/pdf				32	texttopdf
+application/x-csource	application/pdf				32	texttopdf
+application/x-perl	application/pdf				32	texttopdf
+application/x-shell	application/pdf				32	texttopdf
+text/plain		application/pdf				32	texttopdf
+text/html		application/pdf				32	texttopdf
+image/pwg-raster	application/pdf				32	rastertopdf
+image/gif		application/vnd.cups-pdf		65	imagetopdf
+image/png		application/vnd.cups-pdf		65	imagetopdf
+image/jpeg		application/vnd.cups-pdf		65	imagetopdf
+image/tiff		application/vnd.cups-pdf		65	imagetopdf
+image/x-bitmap		application/vnd.cups-pdf		65	imagetopdf
+image/x-photocd		application/vnd.cups-pdf		65	imagetopdf
+image/x-portable-anymap	application/vnd.cups-pdf		65	imagetopdf
+image/x-portable-bitmap	application/vnd.cups-pdf		65	imagetopdf
+image/x-portable-graymap application/vnd.cups-pdf		65	imagetopdf
+image/x-portable-pixmap	application/vnd.cups-pdf		65	imagetopdf
+image/x-sgi-rgb		application/vnd.cups-pdf		65	imagetopdf
+image/x-xbitmap		application/vnd.cups-pdf		65	imagetopdf
+image/x-xpixmap		application/vnd.cups-pdf		65	imagetopdf
+image/x-xwindowdump	application/vnd.cups-pdf		65	imagetopdf
+image/x-sun-raster	application/vnd.cups-pdf		65	imagetopdf
+application/vnd.cups-pdf-banner	application/pdf			32	bannertopdf
 image/urf		application/pdf				0	urftopdf
 
 ########################################################################
@@ -112,6 +111,3 @@ application/x-shell		text/plain			100	-
 text/html			text/plain			100	-
 text/css			text/plain			100	-
 
-#
-# End of "$Id: $".
-#

@@ -7,11 +7,8 @@
  *
  *   These coded instructions, statements, and computer programs are the
  *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
- *
- *   This file is subject to the Apple OS-Developed Software exception.
+ *   law.  Distribution and use rights are outlined in the file "COPYING"
+ *   which should have been included with this file.
  *
  * Contents:
  *
@@ -169,14 +166,11 @@ void
 WriteEpilogue(void)
 {
   static char	*names[] =	/* Font names */
-		{ "FN","FB","FI" };
+		{ "FN","FB","FI","FBI" };
   int i,j;
 
-  free(Page[0]);
-  free(Page);
-
   // embed fonts
-  for (i = PrettyPrint ? 2 : 1; i >= 0; i --) {
+  for (i = PrettyPrint ? 3 : 1; i >= 0; i --) {
     for (j = 0; j < NumFonts; j ++) 
     {
       EMB_PARAMS *emb=Fonts[j][i];
@@ -200,7 +194,7 @@ WriteEpilogue(void)
                     "<<\n",
                     FontResource);
 
-  for (i = PrettyPrint ? 2 : 1; i >= 0; i --) {
+  for (i = PrettyPrint ? 3 : 1; i >= 0; i --) {
     for (j = 0; j < NumFonts; j ++) {
       EMB_PARAMS *emb=Fonts[j][i];
       if (emb->font->fobj) { // used
@@ -250,7 +244,7 @@ WritePage(void)
   int len_obj=pdfOut_add_xref(pdf);
   assert(len_obj==content+1);
   pdfOut_printf(pdf,"%d 0 obj\n"
-                    "%d\n"
+                    "%ld\n"
                     "endobj\n",
                     len_obj,size);
 
@@ -332,18 +326,6 @@ WriteProlog(const char *title,		/* I - Title of job */
     PageBottom += 36;
     PageTop    -= 36;
   }
-
- /*
-  * Allocate memory for the page...
-  */
-
-  SizeColumns = (PageRight - PageLeft) / 72.0 * CharsPerInch;
-  SizeLines   = (PageTop - PageBottom) / 72.0 * LinesPerInch;
-
-  Page    = calloc(sizeof(lchar_t *), SizeLines);
-  Page[0] = calloc(sizeof(lchar_t), SizeColumns * SizeLines);
-  for (i = 1; i < SizeLines; i ++)
-    Page[i] = Page[0] + i * SizeColumns;
 
   if (PageColumns > 1)
   {
@@ -1094,7 +1076,7 @@ static void write_font_str(float x,float y,int fontid, lchar_t *str, int len)
 {
   unsigned short		ch;		/* Current character */
   static char	*names[] =	/* Font names */
-		{ "FN","FB","FI" };
+		{ "FN","FB","FI","FBI" };
 
   if (len==-1) {
     for (len=0;str[len].ch;len++);

@@ -1,10 +1,11 @@
+#include "config.h"
 #include "sfnt.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <errno.h>
 
 #include "embed.h"
-#include "config.h"
 
 #if 0
 enum { TTF_OTF, TYPE1 } inputFile;
@@ -48,7 +49,7 @@ void example_write_fontdescr(OTF_FILE *otf,const char *outfile) // {{{
   FONTFILE *ff=fontfile_open_sfnt(otf);
   EMB_PARAMS *emb=emb_new(ff,
                           EMB_DEST_PDF16,
-//                          EMB_C_KEEP_T1 
+//                          EMB_C_KEEP_T1
                           EMB_C_FORCE_MULTIBYTE
 
                           );
@@ -89,7 +90,7 @@ void example_write_fontdescr(OTF_FILE *otf,const char *outfile) // {{{
   if (outfile) {
     FILE *f=fopen(outfile,"w");
     if (!f) {
-      fprintf(stderr,"Opening \"%s\" for writing failed: %m\n",outfile);
+      fprintf(stderr,"Opening \"%s\" for writing failed: %s\n",outfile, strerror(errno));
       assert(0);
       emb_close(emb);
       return;
@@ -102,7 +103,7 @@ puts("...");
   printf("endstream\n"
          "endobj\n");
   printf("2 0 obj\n"
-         "%d\n" 
+         "%d\n"
          "endobj\n",
          outlen
          );
@@ -136,7 +137,7 @@ puts("...");
 // }}}
 
 // TODO? reencode?
-int main(int argc,char **argv) 
+int main(int argc,char **argv)
 {
   const char *fn=TESTFONT;
   if (argc==2) {
@@ -161,7 +162,7 @@ int main(int argc,char **argv)
   // printf("%d %d\n",otf_from_unicode(otf,'A'),0);
 
   // ... name 6 -> FontName  /20(cid)
-  // ? StemV Flags(?) from FontName 
+  // ? StemV Flags(?) from FontName
 
   otf_close(otf);
 

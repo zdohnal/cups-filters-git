@@ -1,6 +1,4 @@
 /*
- * "$Id$"
- *
  *   Private image library definitions for CUPS.
  *
  *   Copyright 2007-2010 by Apple Inc.
@@ -8,11 +6,8 @@
  *
  *   These coded instructions, statements, and computer programs are the
  *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
- *
- *   This file is subject to the Apple OS-Developed Software exception.
+ *   law.  Distribution and use rights are outlined in the file "COPYING"
+ *   which should have been included with this file.
  */
 
 #ifndef _CUPS_IMAGE_PRIVATE_H_
@@ -22,9 +17,9 @@
  * Include necessary headers...
  */
 
+#  include <config.h>
 #  include "image.h"
 #  include <cups/cups.h>
-#  include <config.h>
 #  define DEBUG_printf(x)
 #  define DEBUG_puts(x)
 #  include <stdlib.h>
@@ -217,6 +212,3 @@ extern void		_cupsRasterClearError(void);
 
 #endif /* !_CUPS_IMAGE_PRIVATE_H_ */
 
-/*
- * End of "$Id$".
- */

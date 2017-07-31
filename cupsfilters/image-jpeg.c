@@ -1,6 +1,4 @@
 /*
- * "$Id$"
- *
  *   JPEG image routines for CUPS.
  *
  *   Copyright 2007-2011 by Apple Inc.
@@ -8,11 +6,8 @@
  *
  *   These coded instructions, statements, and computer programs are the
  *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
- *
- *   This file is subject to the Apple OS-Developed Software exception.
+ *   law.  Distribution and use rights are outlined in the file "COPYING"
+ *   which should have been included with this file.
  *
  * Contents:
  *
@@ -78,7 +73,7 @@ _cupsImageReadJPEG(
 
   for (marker = cinfo.marker_list; marker; marker = marker->next)
     if (marker->marker == (JPEG_APP0 + 14) && marker->data_length >= 12 &&
-        !memcmp(marker->data, "Adobe", 5) && marker->data[11] == 2)
+        !memcmp(marker->data, "Adobe", 5))
     {
       fputs("DEBUG: Adobe CMYK JPEG detected (inverting color values)\n",
 	    stderr);
@@ -316,7 +311,3 @@ _cupsImageReadJPEG(
 }
 #endif /* HAVE_LIBJPEG */
 
-
-/*
- * End of "$Id$".
- */

@@ -7,7 +7,7 @@
 void BookletMode_dump(BookletMode bkm) // {{{
 {
   static const char *bstr[3]={"Off","On","Shuffle-Only"};
-  if ( (bkm<BOOKLET_OFF)||(bkm>BOOKLET_JUSTSHUFFLE) ) {
+  if ((bkm<BOOKLET_OFF) || (bkm>BOOKLET_JUSTSHUFFLE)) {
     fprintf(stderr,"(bad booklet mode: %d)",bkm);
   } else {
     fputs(bstr[bkm],stderr);
@@ -31,11 +31,11 @@ bool ProcessingParameters::withPage(int outno) const // {{{
 void ProcessingParameters::dump() const // {{{
 {
   fprintf(stderr,"jobId: %d, numCopies: %d\n",
-                 jobId,numCopies);
+	  jobId,numCopies);
   fprintf(stderr,"user: %s, title: %s\n",
-                 (user)?user:"(null)",(title)?title:"(null)");
+	  (user)?user:"(null)",(title)?title:"(null)");
   fprintf(stderr,"fitplot: %s\n",
-                 (fitplot)?"true":"false");
+	  (fitplot)?"true":"false");
 
   page.dump();
 
@@ -44,10 +44,10 @@ void ProcessingParameters::dump() const // {{{
   fprintf(stderr,"\n");
 
   fprintf(stderr,"paper_is_landscape: %s\n",
-                 (paper_is_landscape)?"true":"false");
+	  (paper_is_landscape)?"true":"false");
 
   fprintf(stderr,"duplex: %s\n",
-                 (duplex)?"true":"false");
+	  (duplex)?"true":"false");
 
   fprintf(stderr,"Border: ");
   BorderType_dump(border);
@@ -56,17 +56,17 @@ void ProcessingParameters::dump() const // {{{
   nup.dump();
 
   fprintf(stderr,"reverse: %s\n",
-                 (reverse)?"true":"false");
+	  (reverse)?"true":"false");
 
   fprintf(stderr,"evenPages: %s, oddPages: %s\n",
-                 (evenPages)?"true":"false",
-                 (oddPages)?"true":"false");
+	  (evenPages)?"true":"false",
+	  (oddPages)?"true":"false");
 
   fprintf(stderr,"page range: ");
   pageRange.dump();
 
   fprintf(stderr,"mirror: %s\n",
-                 (mirror)?"true":"false");
+	  (mirror)?"true":"false");
 
   fprintf(stderr,"Position: ");
   Position_dump(xpos,Axis::X);
@@ -75,36 +75,32 @@ void ProcessingParameters::dump() const // {{{
   fprintf(stderr,"\n");
 
   fprintf(stderr,"collate: %s\n",
-                 (collate)?"true":"false");
+	  (collate)?"true":"false");
 
   fprintf(stderr,"evenDuplex: %s\n",
-                 (evenDuplex)?"true":"false");
+	  (evenDuplex)?"true":"false");
 
-/*
-  // std::string pageLabel; // or NULL?  must stay/dup!
-  ...
-  ...
-
-*/
+  fprintf(stderr,"pageLabel: %s\n",
+	  pageLabel.empty () ? "(none)" : pageLabel.c_str());
 
   fprintf(stderr,"bookletMode: ");
   BookletMode_dump(booklet);
   fprintf(stderr,"\nbooklet signature: %d\n",
-                 bookSignature);
+	  bookSignature);
 
   fprintf(stderr,"autoRotate: %s\n",
-                 (autoRotate)?"true":"false");
+	  (autoRotate)?"true":"false");
 
   fprintf(stderr,"emitJCL: %s\n",
-                 (emitJCL)?"true":"false");
+	  (emitJCL)?"true":"false");
   fprintf(stderr,"deviceCopies: %d\n",
-                 deviceCopies);
+	  deviceCopies);
   fprintf(stderr,"deviceReverse: %s\n",
-                 (deviceReverse)?"true":"false");
+	  (deviceReverse)?"true":"false");
   fprintf(stderr,"deviceCollate: %s\n",
-                 (deviceCollate)?"true":"false");
+	  (deviceCollate)?"true":"false");
   fprintf(stderr,"setDuplex: %s\n",
-                 (setDuplex)?"true":"false");
+	  (setDuplex)?"true":"false");
 }
 // }}}
 
@@ -116,13 +112,13 @@ PDFTOPDF_Processor *PDFTOPDF_Factory::processor()
 
 // (1-based)
 //   9: [*] [1] [2] [*]  [*] [3] [4] [9]  [8] [5] [6] [7]   -> signature = 12 = 3*4 = ((9+3)/4)*4
-//       1   2   3   4    5   6   7   8    9   10  11  12 
+//       1   2   3   4    5   6   7   8    9   10  11  12
 // NOTE: psbook always fills the sig completely (results in completely white pages (4-set), depending on the input)
 
 // empty pages must be added for output values >=numPages
 std::vector<int> bookletShuffle(int numPages,int signature) // {{{
 {
-  if (signature<0) { 
+  if (signature<0) {
     signature=(numPages+3)&~0x3;
   }
   assert(signature%4==0);
@@ -134,7 +130,7 @@ std::vector<int> bookletShuffle(int numPages,int signature) // {{{
   while (curpage<numPages) {
     // as long as pages to be done -- i.e. multiple times the signature
     int firstpage=curpage,
-        lastpage=curpage+signature-1;
+      lastpage=curpage+signature-1;
     // one signature
     while (firstpage<lastpage) {
       ret.push_back(lastpage--);
@@ -156,7 +152,9 @@ bool processPDFTOPDF(PDFTOPDF_Processor &proc,ProcessingParameters &param) // {{
   }
 
   if (param.autoRotate) {
-    const bool dst_lscape=( param.paper_is_landscape==( (param.orientation==ROT_0)||(param.orientation==ROT_180) ) );
+    const bool dst_lscape =
+      (param.paper_is_landscape ==
+       ((param.orientation == ROT_0) || (param.orientation == ROT_180)));
     proc.autoRotateAll(dst_lscape,param.normal_landscape);
   }
 
@@ -168,11 +166,12 @@ bool processPDFTOPDF(PDFTOPDF_Processor &proc,ProcessingParameters &param) // {{
   if (param.booklet!=BOOKLET_OFF) {
     shuffle=bookletShuffle(numOrigPages,param.bookSignature);
     if (param.booklet==BOOKLET_ON) { // override options
-  // TODO? specifically "sides=two-sided-short-edge" / DuplexTumble 
-//      param.duplex=true;   // param.setDuplex=true;  ?    currently done in setFinalPPD()
+      // TODO? specifically "sides=two-sided-short-edge" / DuplexTumble
+      // param.duplex=true;
+      // param.setDuplex=true;  ?    currently done in setFinalPPD()
       NupParameters::preset(2,param.nup); // TODO?! better
     }
-  } else { // 0 1 2 3 ... 
+  } else { // 0 1 2 3 ...
     shuffle.resize(numOrigPages);
     std::iota(shuffle.begin(),shuffle.end(),0);
   }
@@ -181,17 +180,21 @@ bool processPDFTOPDF(PDFTOPDF_Processor &proc,ProcessingParameters &param) // {{
   std::shared_ptr<PDFTOPDF_PageHandle> curpage;
   int outputno=0;
 
-  if ( (param.nup.nupX==1)&&(param.nup.nupY==1)&&(!param.fitplot) ) {
+  if ((param.nup.nupX==1)&&(param.nup.nupY==1)&&(!param.fitplot)) {
     // TODO? fitplot also without xobject?
     /*
-    param.nup.width=param.page.width;
-    param.nup.height=param.page.height;
+      param.nup.width=param.page.width;
+      param.nup.height=param.page.height;
     */
 
     for (int iA=0;iA<numPages;iA++) {
       if (!param.withPage(iA+1)) {
         continue;
       }
+
+      // Log page in /var/log/cups/page_log
+      if (param.page_logging == 1)
+	fprintf(stderr, "PAGE: %d %d\n", iA + 1, param.copies_to_be_logged);
 
       if (shuffle[iA]>=numOrigPages) {
         // add empty page as filler
@@ -206,8 +209,12 @@ bool processPDFTOPDF(PDFTOPDF_Processor &proc,ProcessingParameters &param) // {{
         page->mirror();
       }
 
+      if (!param.pageLabel.empty()) {
+        page->add_label(param.page, param.pageLabel);
+      }
+
       // place border
-      if ( (param.border!=BorderType::NONE)&&(iA<numOrigPages) ) {
+      if ((param.border!=BorderType::NONE)&&(iA<numOrigPages)) {
 #if 0 // would be nice, but is not possible
         PageRect rect=page->getRect();
 
@@ -217,9 +224,9 @@ bool processPDFTOPDF(PDFTOPDF_Processor &proc,ProcessingParameters &param) // {{
         rect.right-=param.page.right;
         // width,height not needed for add_border_rect (FIXME?)
 
-        page->add_border_rect(rect,param.border,1.0); 
+        page->add_border_rect(rect,param.border,1.0);
 #else // this is what pstops does
-        page->add_border_rect(param.page,param.border,1.0); 
+        page->add_border_rect(param.page,param.border,1.0);
 #endif
       }
 
@@ -231,18 +238,20 @@ bool processPDFTOPDF(PDFTOPDF_Processor &proc,ProcessingParameters &param) // {{
     param.nup.height=param.page.top-param.page.bottom;
 
     double xpos=param.page.left,
-           ypos=param.page.bottom; // for whole page... TODO from position...
+      ypos=param.page.bottom; // for whole page... TODO from position...
 
-const bool origls=param.nup.landscape;
-    if ( (param.orientation==ROT_90)||(param.orientation==ROT_270) ) {
+    const bool origls=param.nup.landscape;
+    if ((param.orientation==ROT_90)||(param.orientation==ROT_270)) {
       std::swap(param.nup.nupX,param.nup.nupY);
       param.nup.landscape=!param.nup.landscape;
       param.orientation=param.orientation-param.normal_landscape;
     }
     if (param.nup.landscape) {
-//      pages[iA]->rotate(param.normal_landscape);
+      // pages[iA]->rotate(param.normal_landscape);
       param.orientation=param.orientation+param.normal_landscape;
       // TODO? better
+      xpos=param.page.bottom;
+      ypos=param.page.width - param.page.right;
       std::swap(param.page.width,param.page.height);
       std::swap(param.nup.width,param.nup.height);
     }
@@ -265,39 +274,34 @@ const bool origls=param.nup.landscape;
         rect.width=param.page.width;
         rect.height=param.page.height;
 
-        // TODO: better
-        if (!origls) {
-          if ( (param.orientation==ROT_90)||(param.orientation==ROT_270) ) {
-            std::swap(rect.width,rect.height);
-          }
-        } else {
-          if ( (param.orientation==ROT_0)||(param.orientation==ROT_180) ) {
-            std::swap(rect.width,rect.height);
-          }
+	// TODO? better
+        if (origls) {
+          std::swap(rect.width,rect.height);
         }
 
-// TODO?
         rect.left=0;
         rect.bottom=0;
         rect.right=rect.width;
         rect.top=rect.height;
-
-        rect.rotate_move(param.orientation,rect.width,rect.height);
       }
-//      rect.dump();
+      // rect.dump();
 
       bool newPage=nupstate.nextPage(rect.width,rect.height,pgedit);
       if (newPage) {
-        if ( (param.withPage(outputno))&&(curpage) ) {
+        if ((curpage)&&(param.withPage(outputno))) {
           curpage->rotate(param.orientation);
           if (param.mirror) {
             curpage->mirror();
-// TODO? update rect? --- not needed any more
+	    // TODO? update rect? --- not needed any more
           }
           proc.add_page(curpage,param.reverse); // reverse -> insert at beginning
+	  // Log page in /var/log/cups/page_log
+	  if (param.page_logging == 1)
+	    fprintf(stderr, "PAGE: %d %d\n", outputno,
+		    param.copies_to_be_logged);
         }
-        outputno++;
         curpage=proc.new_page(param.page.width,param.page.height);
+        outputno++;
       }
       if (shuffle[iA]>=numOrigPages) {
         continue;
@@ -310,6 +314,10 @@ const bool origls=param.nup.landscape;
         page->add_border_rect(rect,param.border,1.0/pgedit.scale);
       }
 
+      if (!param.pageLabel.empty()) {
+        page->add_label(param.page, param.pageLabel);
+      }
+
       if (!param.fitplot) {
         curpage->add_subpage(page,pgedit.xpos+xpos,pgedit.ypos+ypos,pgedit.scale,&rect);
       } else {
@@ -318,24 +326,30 @@ const bool origls=param.nup.landscape;
 
 #ifdef DEBUG
       if (auto dbg=dynamic_cast<QPDF_PDFTOPDF_PageHandle *>(curpage.get())) {
-//        dbg->debug(pgedit.sub,xpos,ypos);
+	// dbg->debug(pgedit.sub,xpos,ypos);
       }
 #endif
 
-//      pgedit.dump();
+      // pgedit.dump();
     }
-    if ( (param.withPage(outputno))&&(curpage) ) {
+    if ((curpage)&&(param.withPage(outputno))) {
       curpage->rotate(param.orientation);
       if (param.mirror) {
         curpage->mirror();
       }
       proc.add_page(curpage,param.reverse); // reverse -> insert at beginning
+      // Log page in /var/log/cups/page_log
+      if (param.page_logging == 1)
+	fprintf(stderr, "PAGE: %d %d\n", outputno, param.copies_to_be_logged);
     }
   }
 
-  if ( (param.evenDuplex)&&(outputno&1) ) {
+  if ((param.evenDuplex || !param.oddPages) && (outputno & 1)) {
     // need to output empty page to not confuse duplex
     proc.add_page(proc.new_page(param.page.width,param.page.height),param.reverse);
+    // Log page in /var/log/cups/page_log
+    if (param.page_logging == 1)
+      fprintf(stderr, "PAGE: %d %d\n", outputno + 1, param.copies_to_be_logged);
   }
 
   proc.multiply(param.numCopies,param.collate);
@@ -343,4 +357,3 @@ const bool origls=param.nup.landscape;
   return true;
 }
 // }}}
-
