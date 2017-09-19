@@ -1,5 +1,16 @@
-NEWS - OpenPrinting CUPS Filters v1.17.5 - 2017-09-13
+NEWS - OpenPrinting CUPS Filters v1.17.6 - 2017-09-15
 -----------------------------------------------------
+
+CHANGES IN V1.17.6
+
+	- braille: Embossers can only emboss integer numbers of 2x4
+          cells. Thanks to Samuel Thibault for this patch.
+	- braille: In Index graphical mode we need to disable the text
+	  margins, since they come in earlier on the way to
+	  there. Thanks to Samuel Thibault for this patch.
+	- braille: Also, we should always add a 1.6mm margin for
+	  taking into account the width of dots. Thanks to Samuel
+	  Thibault for this patch.
 
 CHANGES IN V1.17.5
 
@@ -32,15 +43,17 @@ CHANGES IN V1.17.4
 
 CHANGES IN V1.17.3
 
-	- bannertopdf: Make it working also with Poppler 0.58.0 and newer
-	  (Bug #1408).
-	- gstoraster, pdftops, foomatic-rip: Added "-dShowAcroForm" to all
-	  Ghostscript command lines where the input data format can be PDF.
-	  With this and the fix of Ghostscript bug #698461 most filled
-	  PDF forms should be rendered correctly by Ghostscript now.
-	- libcupsfilters: Do not check maximum resolutions of raster-based
-	  PDLs, as implementation was incorrect and reliability of PDLs is
-	  more important than maximum resolution.
+	- bannertopdf: Make it working also with Poppler 0.58.0 and
+	  newer (Bug #1408).
+	- gstoraster, pdftops, foomatic-rip: Added "-dShowAcroForm" to
+	  all Ghostscript command lines where the input data format
+	  can be PDF.  With this and the fix of Ghostscript bug
+	  #698461 most filled PDF forms should be rendered correctly
+	  by Ghostscript now.
+	- libcupsfilters: Do not check maximum resolutions of
+	  raster-based PDLs, as implementation was incorrect and
+	  reliability of PDLs is more important than maximum
+	  resolution.
 
 CHANGES IN V1.17.2
 
