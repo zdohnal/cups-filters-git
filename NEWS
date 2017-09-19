@@ -1,5 +1,41 @@
-NEWS - OpenPrinting CUPS Filters v1.17.6 - 2017-09-15
+NEWS - OpenPrinting CUPS Filters v1.17.7 - 2017-09-18
 -----------------------------------------------------
+
+CHANGES IN V1.17.7
+
+	- braille: Add a mirror option for graphical output. Thanks to
+          Samuel Thibault for this patch.
+	- braille: Rename the internal cups name of the Resize option
+	  to the standard well-known and well-documented fitplot
+	  option. Thanks to Samuel Thibault for this patch.
+	- braille: Add support for margins in graphical mode,
+	  defaulting them to 15 points (a bit more than 5mm). Thanks
+	  to Samuel Thibault for this patch.
+	- braille: Updated French translation. Thanks to Samuel
+	  Thibault for this patch.
+	- braille: Add a PPD which generates UBRL output, i.e. Braille
+	  expressed in Unicode. This is not useful for actual
+	  embossers, but very convenient to check output to be
+	  embossed without wasting paper. Thanks to Samuel Thibault
+	  for this patch.
+	- braille: Add virtual BRF backend for generating
+	  ready-to-emboss BRF files with CUPS, similarly to the
+	  cups-pdf backend. Thanks to Samuel Thibault for this patch.
+	- braille: Some tools seem to emit true/false instead of
+	  True/False, so let us cope with it. Thanks to Samuel
+	  Thibault for this patch.
+	- braille: "make uninstall" did not remove all the
+	  links. Thanks to Samuel Thibault for this patch.
+	- braille: Add support for embossing MusicXML files, through
+	  the FreeDots transcriptor. Thanks to Samuel Thibault for
+	  this patch.
+	- braille: Add proper support for hardware margins on braille
+	  embossers. Thanks to Samuel Thibault for this patch.
+	- braille: Fix the disabling of the text margins in Index
+	  graphics mode. Thanks to Samuel Thibault for this patch.
+	- braille: Support for direct, structured embossing of XML and
+	  XML-based file formats (like odt, docx, ...). Thanks to
+	  Samuel Thibault for this patch.
 
 CHANGES IN V1.17.6
 
